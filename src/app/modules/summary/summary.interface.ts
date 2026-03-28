@@ -11,7 +11,11 @@ export type TSummaryQuery = z.infer<typeof summaryQuerySchema>['query'];
 
 export interface ISummaryResult {
   totalSales: number;
+  totalExpenses: number;
   transactionCount: number;
+  expenseCount: number;
+  openingBalance: number;
+  closingBalance: number;
   period: string;
   startDate: Date;
   endDate: Date;

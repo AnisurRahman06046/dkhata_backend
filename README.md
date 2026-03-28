@@ -1,17 +1,40 @@
 # Digital Khata Bot (DKB) - Backend
 
-A Telegram chatbot-based sales tracking system for small retail shop owners in Bangladesh. Replace paper-based sales recording with an ultra-simple, chat-based digital solution.
+A Telegram chatbot-based sales & expense tracking system for small retail shop owners in Bangladesh. Replace paper-based sales recording with an ultra-simple, chat-based digital solution with automatic daily ledger management.
 
 ## Features
 
 - **Quick Sale Entry** — Type `Shirt 500` to record a sale instantly
+- **Quick Expense Entry** — Type `-50` or `-100 Tea` to record an expense
 - **Bangla Numeral Support** — Works with `Shirt ৫০০`
-- **Guided Sale Flow** — Step-by-step entry via `/addsale`
-- **Daily/Weekly/Monthly Summaries** — `/today`, `/week`, `/month`
-- **Sales History** — `/history` to view recent transactions
-- **Google Sheets Backup** — Auto-sync sales to a spreadsheet (optional)
+- **Guided Flows** — Step-by-step entry via `/addsale` and `/expense`
+- **Daily Ledger** — Automatic opening/closing balance with carry-forward
+- **Live Balance** — `/balance` shows real-time opening, sales, expenses, balance
+- **End of Day** — `/endday` to close and lock the day
+- **Auto Carry-Forward** — Next day's opening = previous day's closing
+- **Auto Day Close** — Reminder at 11 PM BD, auto-close at midnight
+- **Delete Entries** — `/delete` removes the last entry
+- **Reports** — `/today`, `/week`, `/month` with full breakdown
+- **Google Sheets Backup** — Auto-sync to a spreadsheet (optional)
 - **REST API** — Full API alongside the Telegram bot
-- **Bangladesh Timezone** — All date calculations use UTC+6
+- **Bangladesh Timezone** — All calculations use UTC+6
+
+## How It Works
+
+```
+Day 1:
+  Opening Balance = 0 (or set via /setbalance)
+  User types: Shirt 500     → Sale +500, Balance = 500
+  User types: Rice 800      → Sale +800, Balance = 1300
+  User types: -50            → Expense -50, Balance = 1250
+  /balance                   → Shows live breakdown
+  /endday                    → Closes day, Closing = 1250
+
+Day 2 (automatic):
+  Opening Balance = 1250 (carried forward)
+  User types: 300            → Sale +300, Balance = 1550
+  User types: -100 Tea       → Expense -100, Balance = 1450
+```
 
 ## Tech Stack
 
@@ -36,26 +59,28 @@ backend/
 │   │   ├── modules/
 │   │   │   ├── user/            # User registration & management
 │   │   │   ├── sale/            # Sale CRUD operations
+│   │   │   ├── expense/         # Expense CRUD operations
+│   │   │   ├── daily-ledger/    # Daily balance & carry-forward logic
 │   │   │   ├── summary/         # Daily/weekly/monthly aggregations
-│   │   │   ├── telegram/        # Bot, handlers, parser, wizard scenes
+│   │   │   ├── telegram/        # Bot, handlers, parser, scenes, templates
 │   │   │   └── google-sheets/   # Google Sheets sync service
 │   │   ├── routes/              # Route aggregation + health checks
 │   │   └── utils/               # catchAsync, sendApiResponse, logger
 │   ├── lib/
 │   │   └── prisma.ts            # Prisma client singleton
 │   ├── app.ts                   # Express application setup
-│   └── server.ts                # Server entrypoint + graceful shutdown
+│   └── server.ts                # Server + bot + auto-close job
 ├── prisma/
-│   └── schema.prisma            # Database schema (User, Sale)
+│   └── schema.prisma            # Database schema (User, Sale, Expense, DailyLedger)
 ├── tests/
 │   └── unit/
-│       └── parser.test.ts       # Sale input parser tests
+│       └── parser.test.ts       # Sale/expense input parser tests
 ├── docker-compose.yml
 ├── Dockerfile
 └── package.json
 ```
 
-Each module follows the pattern: `interface.ts` (Zod schemas) → `service.ts` (business logic) → `controller.ts` (HTTP handlers) → `routes.ts` (Express router).
+Each module follows: `interface.ts` (Zod schemas) → `service.ts` (business logic) → `controller.ts` (HTTP handlers) → `routes.ts` (Express router).
 
 ## Prerequisites
 
@@ -119,37 +144,81 @@ npx prisma migrate dev --name init
 npm run dev
 ```
 
-The server starts on `http://localhost:5000` and the Telegram bot begins polling for messages.
-
-## Usage
-
-### Telegram Bot Commands
+## Telegram Bot Commands
 
 | Command | Description |
 |---------|-------------|
 | `/start` | Register and get started |
 | `/addsale` | Add a sale step by step |
-| `/today` | Today's sales summary |
-| `/week` | Last 7 days summary |
-| `/month` | Current month summary |
-| `/history` | View recent sales |
+| `/expense` | Add an expense step by step |
+| `/balance` | View live balance |
+| `/today` | Today's full report |
+| `/week` | Last 7 days report |
+| `/month` | This month's report |
+| `/history` | Recent transactions |
+| `/endday` | Close and lock today |
+| `/delete` | Remove last entry |
+| `/setbalance` | Set opening cash balance |
 | `/help` | Show all commands |
 
-### Quick Sale Entry
+### Quick Entry
 
-Just type a product name followed by a price:
-
+**Sales (money in):**
 ```
 Shirt 500
 Rice 5kg 350
-Blue Jeans 1200
 500 Shirt
 Lungi ৫০০
 ```
 
-The bot parses the message and records the sale automatically.
+**Expenses (money out):**
+```
+-50
+-100 Tea
+Transport -200
+```
 
-### REST API Endpoints
+## Daily Ledger System
+
+The bot automatically manages a daily ledger for each user:
+
+1. **Auto Day Start** — New day starts automatically, opening = yesterday's closing
+2. **First Day** — Opening = 0, or set with `/setbalance`
+3. **Sales** — Add to balance (`total_sales += amount`)
+4. **Expenses** — Subtract from balance (`total_expenses += amount`)
+5. **Live Balance** — `/balance` shows real-time state
+6. **End Day** — `/endday` or auto-close at midnight BD time
+7. **Auto Carry-Forward** — Next day inherits previous closing balance
+
+### Balance View (`/balance`)
+```
+💰 Live Balance
+📅 28 Mar 2026  │  🟢 Active
+─────────────────────────
+🏦 Opening:       5,000 BDT
+🟢 Sales:           +3,000 BDT
+🔴 Expenses:      -500 BDT
+📊 Net:                +2,500 BDT
+─────────────────────────
+💳 Current Balance:  7,500 BDT
+```
+
+### End Day View (`/endday`)
+```
+🏙️ Day Closed
+📅 28 Mar 2026
+─────────────────────────
+🏦 Opening:       5,000 BDT
+🟢 Total Sales:   +8,000 BDT
+🔴 Total Exp:     -2,000 BDT
+📈 Net P/L:          +6,000 BDT
+─────────────────────────
+🔐 Closing Balance:  11,000 BDT
+
+Tomorrow's opening will be 11,000 BDT
+```
+
+## REST API Endpoints
 
 **Health Checks**
 
@@ -163,7 +232,7 @@ GET /live            # Liveness with uptime and memory
 
 ```
 POST   /api/v1/users                 # Create user
-GET    /api/v1/users/:telegramId     # Get user by Telegram ID
+GET    /api/v1/users/:telegramId     # Get user
 PATCH  /api/v1/users/:telegramId     # Update user
 ```
 
@@ -171,54 +240,89 @@ PATCH  /api/v1/users/:telegramId     # Update user
 
 ```
 POST   /api/v1/sales                 # Create sale
-GET    /api/v1/sales?telegramId=...  # Get sales (with optional filters)
+GET    /api/v1/sales?telegramId=...  # Get sales
 DELETE /api/v1/sales/:id             # Delete sale
 ```
 
-Query parameters for `GET /api/v1/sales`:
+**Expenses**
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `telegramId` | string | Required. User's Telegram ID |
-| `startDate` | ISO string | Filter sales from this date |
-| `endDate` | ISO string | Filter sales until this date |
-| `limit` | number | Max results (default: 20, max: 100) |
-| `offset` | number | Skip results for pagination |
+```
+POST   /api/v1/expenses                 # Create expense
+GET    /api/v1/expenses?telegramId=...  # Get expenses
+DELETE /api/v1/expenses/:id             # Delete expense
+```
 
 **Summary**
 
 ```
-GET /api/v1/summary/today?telegramId=...               # Today's summary
-GET /api/v1/summary?telegramId=...&period=today|week|month  # Summary by period
+GET /api/v1/summary/today?telegramId=...
+GET /api/v1/summary?telegramId=...&period=today|week|month
 ```
 
-### API Response Format
-
-**Success:**
+### Response Format
 
 ```json
 {
   "success": true,
-  "message": "Sale recorded successfully",
-  "data": { ... }
+  "message": "Summary retrieved successfully",
+  "data": {
+    "openingBalance": 5000,
+    "totalSales": 3000,
+    "totalExpenses": 500,
+    "closingBalance": 7500,
+    "transactionCount": 5,
+    "expenseCount": 2,
+    "period": "today",
+    "sales": [...],
+    "expenses": [...]
+  }
 }
 ```
 
-**Error:**
+## Database Schema
 
-```json
-{
-  "success": false,
-  "message": "Validation Error",
-  "errorSources": [
-    { "path": "body.price", "message": "Price must be a positive number" }
-  ]
-}
-```
+**User** — Registered bot users
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| telegramId | String | Unique Telegram ID |
+| name | String | Display name |
+| initialBalance | Decimal | First-day opening (default: 0) |
+
+**Sale** — Money in
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| userId | UUID | FK to User |
+| productName | String | Product sold |
+| price | Decimal(12,2) | Sale amount (BDT) |
+| quantity | Int | Default: 1 |
+
+**Expense** — Money out
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| userId | UUID | FK to User |
+| description | String | Expense description |
+| amount | Decimal(12,2) | Expense amount (BDT) |
+
+**DailyLedger** — Daily balance tracking
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | UUID | Primary key |
+| userId | UUID | FK to User |
+| date | String | YYYY-MM-DD (BD time) |
+| openingBalance | Decimal | Start of day |
+| totalSales | Decimal | Sum of sales |
+| totalExpenses | Decimal | Sum of expenses |
+| closingBalance | Decimal | End of day |
+| isClosed | Boolean | Locked status |
 
 ## Google Sheets Integration (Optional)
-
-To enable automatic backup of sales to Google Sheets:
 
 1. Create a Google Cloud project and enable the Sheets API
 2. Create a service account and download the JSON key
@@ -226,85 +330,35 @@ To enable automatic backup of sales to Google Sheets:
 4. Add to `.env`:
 
 ```env
-GOOGLE_SHEETS_CREDENTIALS='{"type":"service_account","project_id":"...","private_key":"..."}'
+GOOGLE_SHEETS_CREDENTIALS='{"type":"service_account",...}'
 GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id
 ```
 
-Sales are synced automatically. Failed syncs are retried every 5 minutes.
-
-## Database Schema
-
-**User**
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | UUID | Primary key |
-| telegramId | String | Unique Telegram user ID |
-| name | String | User's display name |
-| phone | String? | Optional phone number |
-| language | String | `en` or `bn` (default: `en`) |
-| createdAt | DateTime | Registration timestamp |
-| updatedAt | DateTime | Last update timestamp |
-
-**Sale**
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | UUID | Primary key |
-| userId | UUID | Foreign key to User |
-| productName | String | Name of the product sold |
-| price | Decimal(12,2) | Sale price in BDT |
-| quantity | Int | Quantity sold (default: 1) |
-| syncedToSheets | Boolean | Google Sheets sync status |
-| createdAt | DateTime | Sale timestamp |
-
 ## Docker Deployment
 
-### Full Stack (API + Database)
-
 ```bash
-# Set required env vars
-export TELEGRAM_BOT_TOKEN=your_token_here
-
-# Build and start
+export TELEGRAM_BOT_TOKEN=your_token
 docker compose up -d
-
-# Run migrations
 docker compose exec api npx prisma migrate deploy
 ```
 
-### Production with Webhook
-
-For production, set a webhook URL instead of long-polling:
-
+For production webhook mode:
 ```env
 TELEGRAM_WEBHOOK_URL=https://your-domain.com
 ```
-
-The bot will register a webhook at `https://your-domain.com/telegram-webhook`.
 
 ## Scripts
 
 | Script | Description |
 |--------|-------------|
-| `npm run dev` | Start dev server with hot reload |
+| `npm run dev` | Start with hot reload |
 | `npm run build` | Compile TypeScript |
 | `npm start` | Run production build |
-| `npm test` | Run tests |
-| `npm run lint` | Lint source code |
 | `npm run prisma:generate` | Generate Prisma client |
-| `npm run prisma:migrate` | Run database migrations |
-| `npm run prisma:studio` | Open Prisma Studio GUI |
-| `npm run docker:up` | Start Docker containers |
-| `npm run docker:down` | Stop Docker containers |
-
-## Browse Database
-
-```bash
-npx prisma studio
-```
-
-Opens a web UI at `http://localhost:5555` to view and edit Users and Sales.
+| `npm run prisma:migrate` | Run migrations |
+| `npm run prisma:studio` | Browse database GUI |
+| `npm run docker:up` | Start containers |
+| `npm run docker:down` | Stop containers |
 
 ## License
 
