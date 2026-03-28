@@ -2,9 +2,10 @@ import { Prisma } from '../../../../generated/prisma/client';
 import prisma from '../../../lib/prisma';
 import { NotFoundError } from '../../errors';
 import { userService } from '../user/user.service';
+import { dailyLedgerService } from '../daily-ledger/daily-ledger.service';
 import { ISaleFilters } from './sale.interface';
 
-const BD_TIMEZONE_OFFSET_MS = 6 * 60 * 60 * 1000; // UTC+6
+const BD_TIMEZONE_OFFSET_MS = 6 * 60 * 60 * 1000;
 
 const getTodayStartUTC = (): Date => {
   const now = new Date();
@@ -33,6 +34,9 @@ const createSale = async (
     },
   });
 
+  // Update daily ledger
+  await dailyLedgerService.recordSale(user.id, price);
+
   return sale;
 };
 
@@ -50,6 +54,9 @@ const createSaleByUserId = async (
       quantity,
     },
   });
+
+  // Update daily ledger
+  await dailyLedgerService.recordSale(userId, price);
 
   return sale;
 };
@@ -98,6 +105,9 @@ const deleteSale = async (saleId: string, userId: string) => {
   }
 
   await prisma.sale.delete({ where: { id: saleId } });
+
+  // Reverse from daily ledger
+  await dailyLedgerService.undoSale(userId, Number(sale.price));
 
   return sale;
 };

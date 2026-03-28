@@ -1,20 +1,20 @@
 import { Telegraf, Scenes } from 'telegraf';
 import { BotContext } from './telegram.middleware';
-import { parseSaleInput } from './telegram.parser';
+import { parseInput } from './telegram.parser';
 import { userService } from '../user/user.service';
 import { saleService } from '../sale/sale.service';
+import { expenseService } from '../expense/expense.service';
 import { summaryService } from '../summary/summary.service';
+import { dailyLedgerService } from '../daily-ledger/daily-ledger.service';
+import * as tpl from './telegram.templates';
 import logger from '../../utils/logger';
 
 type BotWithScenes = BotContext & Scenes.SceneContext;
 
-const formatDate = (date: Date): string => {
-  const bdTime = new Date(date.getTime() + 6 * 60 * 60 * 1000);
-  return bdTime.toISOString().replace('T', ' ').substring(0, 16);
-};
+const md = { parse_mode: 'Markdown' as const };
 
 export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
-  // /start — Register user
+  // ─── /start ────────────────────────────
   bot.start(async ctx => {
     if (!ctx.from) return;
 
@@ -23,213 +23,285 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
 
     try {
       await userService.findOrCreateByTelegramId(telegramId, name);
-
-      await ctx.reply(
-        `Welcome to Digital Khata Bot, ${name}!\n` +
-          `Your digital sales diary is ready.\n\n` +
-          `Commands:\n` +
-          `/addsale - Add a sale step by step\n` +
-          `/today - Today's summary\n` +
-          `/history - Recent sales\n` +
-          `/help - Show all commands\n\n` +
-          `Or just type: Product Price\n` +
-          `Example: Shirt 500`,
-      );
+      await ctx.reply(tpl.welcomeMessage(name), md);
     } catch (error) {
       logger.error('Start command error:', error);
-      await ctx.reply('Something went wrong. Please try again.');
+      await ctx.reply(tpl.errorGeneric(), md);
     }
   });
 
-  // /addsale — Enter guided wizard
+  // ─── /addsale ──────────────────────────
   bot.command('addsale', async ctx => {
     await (ctx as BotWithScenes).scene.enter('add-sale-wizard');
   });
 
-  // /today — Daily summary
+  // ─── /expense or /addexpense ───────────
+  bot.command('expense', async ctx => {
+    await (ctx as BotWithScenes).scene.enter('add-expense-wizard');
+  });
+  bot.command('addexpense', async ctx => {
+    await (ctx as BotWithScenes).scene.enter('add-expense-wizard');
+  });
+
+  // ─── /setbalance ───────────────────────
+  bot.command('setbalance', async ctx => {
+    await (ctx as BotWithScenes).scene.enter('set-balance-wizard');
+  });
+
+  // ─── /balance ──────────────────────────
+  bot.command('balance', async ctx => {
+    const user = ctx.state?.user;
+    if (!user) {
+      await ctx.reply(tpl.errorNotRegistered(), md);
+      return;
+    }
+
+    try {
+      const balance = await dailyLedgerService.getLiveBalance(user.id);
+      await ctx.reply(tpl.balanceMessage(balance), md);
+    } catch (error) {
+      logger.error('Balance command error:', error);
+      await ctx.reply(tpl.errorGeneric(), md);
+    }
+  });
+
+  // ─── /today ────────────────────────────
   bot.command('today', async ctx => {
     const user = ctx.state?.user;
     if (!user) {
-      await ctx.reply('Please register with /start first.');
+      await ctx.reply(tpl.errorNotRegistered(), md);
       return;
     }
 
     try {
-      const [summary, sales] = await Promise.all([
+      const [summary, sales, expenses] = await Promise.all([
         summaryService.getSummary(user.id, 'today'),
         summaryService.getSalesListForPeriod(user.id, 'today'),
+        summaryService.getExpensesListForPeriod(user.id, 'today'),
       ]);
 
-      if (summary.transactionCount === 0) {
-        await ctx.reply(
-          "Today's Summary\n" +
-            '---\n' +
-            'No sales recorded yet today.\n\n' +
-            'Type "Product Price" to add a sale (e.g., Shirt 500)',
-        );
+      if (summary.transactionCount === 0 && summary.expenseCount === 0) {
+        await ctx.reply(tpl.todaySummaryEmpty(summary.openingBalance), md);
         return;
       }
 
-      let message =
-        "Today's Sales Summary\n" +
-        '---\n' +
-        `Total: ${summary.totalSales} BDT\n` +
-        `Transactions: ${summary.transactionCount}\n` +
-        '---\n';
-
-      sales.forEach((sale, index) => {
-        message += `${index + 1}. ${sale.productName} - ${sale.price} BDT\n`;
-      });
-
-      await ctx.reply(message);
+      await ctx.reply(tpl.todaySummary(summary, sales, expenses), md);
     } catch (error) {
       logger.error('Today command error:', error);
-      await ctx.reply('Failed to get summary. Please try again.');
+      await ctx.reply(tpl.errorGeneric(), md);
     }
   });
 
-  // /history — Recent sales
+  // ─── /history ──────────────────────────
   bot.command('history', async ctx => {
     const user = ctx.state?.user;
     if (!user) {
-      await ctx.reply('Please register with /start first.');
+      await ctx.reply(tpl.errorNotRegistered(), md);
       return;
     }
 
     try {
-      const result = await saleService.getSalesByUser({
-        userId: user.id,
-        limit: 10,
-      });
+      const [salesResult, expensesResult] = await Promise.all([
+        saleService.getSalesByUser({ userId: user.id, limit: 10 }),
+        expenseService.getExpensesByUser({ userId: user.id, limit: 10 }),
+      ]);
 
-      if (result.sales.length === 0) {
-        await ctx.reply(
-          'No sales recorded yet.\n\n' +
-            'Type "Product Price" to add your first sale (e.g., Shirt 500)',
-        );
+      const total = salesResult.total + expensesResult.total;
+
+      if (total === 0) {
+        await ctx.reply(tpl.historyEmpty(), md);
         return;
       }
 
-      let message = `Recent Sales (${result.sales.length} of ${result.total})\n---\n`;
+      // Merge and sort by date descending
+      const transactions = [
+        ...salesResult.sales.map(s => ({
+          type: 'sale' as const,
+          name: s.productName,
+          amount: Number(s.price),
+          createdAt: s.createdAt,
+          id: s.id,
+        })),
+        ...expensesResult.expenses.map(e => ({
+          type: 'expense' as const,
+          name: e.description,
+          amount: Number(e.amount),
+          createdAt: e.createdAt,
+          id: e.id,
+        })),
+      ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+       .slice(0, 15);
 
-      result.sales.forEach((sale, index) => {
-        message += `${index + 1}. ${sale.productName} - ${sale.price} BDT (${formatDate(sale.createdAt)})\n`;
-      });
-
-      await ctx.reply(message);
+      await ctx.reply(tpl.historyList(transactions, total), md);
     } catch (error) {
       logger.error('History command error:', error);
-      await ctx.reply('Failed to get history. Please try again.');
+      await ctx.reply(tpl.errorGeneric(), md);
     }
   });
 
-  // /week — Weekly summary
+  // ─── /week ─────────────────────────────
   bot.command('week', async ctx => {
     const user = ctx.state?.user;
     if (!user) {
-      await ctx.reply('Please register with /start first.');
+      await ctx.reply(tpl.errorNotRegistered(), md);
       return;
     }
 
     try {
       const summary = await summaryService.getSummary(user.id, 'week');
-
       await ctx.reply(
-        'Weekly Summary (Last 7 days)\n' +
-          '---\n' +
-          `Total: ${summary.totalSales} BDT\n` +
-          `Transactions: ${summary.transactionCount}\n`,
+        tpl.periodSummary(summary, 'Weekly Report', '\uD83D\uDCC5'),
+        md,
       );
     } catch (error) {
       logger.error('Week command error:', error);
-      await ctx.reply('Failed to get weekly summary. Please try again.');
+      await ctx.reply(tpl.errorGeneric(), md);
     }
   });
 
-  // /month — Monthly summary
+  // ─── /month ────────────────────────────
   bot.command('month', async ctx => {
     const user = ctx.state?.user;
     if (!user) {
-      await ctx.reply('Please register with /start first.');
+      await ctx.reply(tpl.errorNotRegistered(), md);
       return;
     }
 
     try {
       const summary = await summaryService.getSummary(user.id, 'month');
-
       await ctx.reply(
-        'Monthly Summary\n' +
-          '---\n' +
-          `Total: ${summary.totalSales} BDT\n` +
-          `Transactions: ${summary.transactionCount}\n`,
+        tpl.periodSummary(summary, 'Monthly Report', '\uD83D\uDCC6'),
+        md,
       );
     } catch (error) {
       logger.error('Month command error:', error);
-      await ctx.reply('Failed to get monthly summary. Please try again.');
+      await ctx.reply(tpl.errorGeneric(), md);
     }
   });
 
-  // /help — Command list
-  bot.help(async ctx => {
-    await ctx.reply(
-      'Digital Khata Bot - Commands\n' +
-        '---\n' +
-        '/start - Register / restart\n' +
-        '/addsale - Add sale step by step\n' +
-        '/today - Today\'s summary\n' +
-        '/week - Weekly summary\n' +
-        '/month - Monthly summary\n' +
-        '/history - Recent sales\n' +
-        '/help - Show this help\n\n' +
-        'Quick Entry:\n' +
-        'Just type: Product Price\n' +
-        'Examples:\n' +
-        '  Shirt 500\n' +
-        '  Rice 5kg 350\n' +
-        '  Blue Jeans 1200',
-    );
-  });
-
-  // Text message fallback — Natural language sale entry
-  bot.on('text', async ctx => {
+  // ─── /endday ───────────────────────────
+  bot.command('endday', async ctx => {
     const user = ctx.state?.user;
     if (!user) {
-      await ctx.reply('Please register with /start first.');
-      return;
-    }
-
-    const text = ctx.message.text;
-
-    // Skip if it looks like a command
-    if (text.startsWith('/')) return;
-
-    const parsed = parseSaleInput(text);
-
-    if (!parsed) {
-      await ctx.reply(
-        'Could not understand your input.\n\n' +
-          'To record a sale, type:\n' +
-          'Product Price (e.g., Shirt 500)\n\n' +
-          'Or use /addsale for step-by-step entry.',
-      );
+      await ctx.reply(tpl.errorNotRegistered(), md);
       return;
     }
 
     try {
-      await saleService.createSaleByUserId(
-        user.id,
-        parsed.productName,
-        parsed.price,
-      );
+      const result = await dailyLedgerService.endDay(user.id);
+      await ctx.reply(tpl.endDayMessage(result), md);
+    } catch (error) {
+      logger.error('Endday command error:', error);
+      await ctx.reply(tpl.errorGeneric(), md);
+    }
+  });
 
+  // ─── /delete ───────────────────────────
+  bot.command('delete', async ctx => {
+    const user = ctx.state?.user;
+    if (!user) {
+      await ctx.reply(tpl.errorNotRegistered(), md);
+      return;
+    }
+
+    try {
+      // Find the most recent sale or expense for today
+      const [salesResult, expensesResult] = await Promise.all([
+        saleService.getTodaySales(user.id),
+        expenseService.getExpensesByUser({
+          userId: user.id,
+          limit: 1,
+        }),
+      ]);
+
+      const lastSale = salesResult.sales[0];
+      const lastExpense = expensesResult.expenses[0];
+
+      if (!lastSale && !lastExpense) {
+        await ctx.reply(tpl.deleteNothing(), md);
+        return;
+      }
+
+      // Delete whichever is more recent
+      let type: 'sale' | 'expense';
+      let name: string;
+      let amount: number;
+
+      const saleTime = lastSale ? lastSale.createdAt.getTime() : 0;
+      const expenseTime = lastExpense ? lastExpense.createdAt.getTime() : 0;
+
+      if (saleTime >= expenseTime && lastSale) {
+        await saleService.deleteSale(lastSale.id, user.id);
+        type = 'sale';
+        name = lastSale.productName;
+        amount = Number(lastSale.price);
+      } else if (lastExpense) {
+        await expenseService.deleteExpense(lastExpense.id, user.id);
+        await dailyLedgerService.undoExpense(user.id, Number(lastExpense.amount));
+        type = 'expense';
+        name = lastExpense.description;
+        amount = Number(lastExpense.amount);
+      } else {
+        await ctx.reply(tpl.deleteNothing(), md);
+        return;
+      }
+
+      const balance = await dailyLedgerService.getLiveBalance(user.id);
       await ctx.reply(
-        `Sale Recorded!\n` +
-          `Product: ${parsed.productName}\n` +
-          `Price: ${parsed.price} BDT`,
+        tpl.deleteConfirmation(type, name, amount, balance.currentBalance),
+        md,
       );
     } catch (error) {
-      logger.error('Sale entry error:', error);
-      await ctx.reply('Failed to record sale. Please try again.');
+      logger.error('Delete command error:', error);
+      await ctx.reply(tpl.errorGeneric(), md);
+    }
+  });
+
+  // ─── /help ─────────────────────────────
+  bot.help(async ctx => {
+    await ctx.reply(tpl.helpMessage(), md);
+  });
+
+  // ─── Text fallback (quick sale or expense) ──
+  bot.on('text', async ctx => {
+    const user = ctx.state?.user;
+    if (!user) {
+      await ctx.reply(tpl.errorNotRegistered(), md);
+      return;
+    }
+
+    const text = ctx.message.text;
+    if (text.startsWith('/')) return;
+
+    const parsed = parseInput(text);
+
+    if (!parsed) {
+      await ctx.reply(tpl.errorInvalidInput(), md);
+      return;
+    }
+
+    try {
+      if (parsed.type === 'sale') {
+        const { productName, price } = parsed.data;
+        await saleService.createSaleByUserId(user.id, productName, price);
+        const balance = await dailyLedgerService.getLiveBalance(user.id);
+        await ctx.reply(
+          tpl.saleConfirmation(productName, price, balance.currentBalance),
+          md,
+        );
+      } else {
+        const { description, amount } = parsed.data;
+        await expenseService.createExpense(user.id, description, amount);
+        await dailyLedgerService.recordExpense(user.id, amount);
+        const balance = await dailyLedgerService.getLiveBalance(user.id);
+        await ctx.reply(
+          tpl.expenseConfirmation(description, amount, balance.currentBalance),
+          md,
+        );
+      }
+    } catch (error) {
+      logger.error('Entry error:', error);
+      await ctx.reply(tpl.errorGeneric(), md);
     }
   });
 };

@@ -1,7 +1,7 @@
 import { Telegraf, Scenes, session } from 'telegraf';
 import config from '../../config';
 import { BotContext, authMiddleware } from './telegram.middleware';
-import { addSaleWizard } from './telegram.scenes';
+import { addSaleWizard, addExpenseWizard, setBalanceWizard } from './telegram.scenes';
 import { registerHandlers } from './telegram.handlers';
 import logger from '../../utils/logger';
 
@@ -17,19 +17,21 @@ export const createBot = (): Telegraf<BotWithScenes> => {
   // Session middleware for wizard scenes
   bot.use(session());
 
-  // Auth middleware — ensure user exists before processing
+  // Auth middleware
   bot.use(authMiddleware as Parameters<typeof bot.use>[0]);
 
-  // Scene stage — register wizard scenes
+  // Scene stage — register all wizard scenes
   const stage = new Scenes.Stage<BotWithScenes>([
     addSaleWizard as unknown as Scenes.BaseScene<BotWithScenes>,
+    addExpenseWizard as unknown as Scenes.BaseScene<BotWithScenes>,
+    setBalanceWizard as unknown as Scenes.BaseScene<BotWithScenes>,
   ]);
   bot.use(stage.middleware());
 
   // Register all command and message handlers
   registerHandlers(bot);
 
-  // Error handler — prevent bot crash on unhandled errors
+  // Error handler
   bot.catch((error, ctx) => {
     logger.error(`Bot error for ${ctx.updateType}:`, error);
   });
@@ -49,10 +51,7 @@ export const startBot = async (bot: Telegraf<BotWithScenes>) => {
     return bot.webhookCallback(webhookPath);
   }
 
-  // Long-polling mode for development
-  await bot.launch({
-    dropPendingUpdates: true,
-  });
+  await bot.launch({ dropPendingUpdates: true });
   logger.info('Telegram bot started in long-polling mode');
 };
 
