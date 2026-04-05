@@ -19,6 +19,7 @@ const envSchema = z.object({
   TELEGRAM_WEBHOOK_URL: z.string().default(''),
   GOOGLE_SHEETS_CREDENTIALS: z.string().default(''),
   GOOGLE_SHEETS_SPREADSHEET_ID: z.string().default(''),
+  ADMIN_TELEGRAM_IDS: z.string().default(''),
 });
 
 const validateEnv = () => {
@@ -56,6 +57,9 @@ const config = {
     credentials: env.GOOGLE_SHEETS_CREDENTIALS || '',
     spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID || '',
   },
+  adminTelegramIds: env.ADMIN_TELEGRAM_IDS
+    ? env.ADMIN_TELEGRAM_IDS.split(',').map(id => id.trim())
+    : [],
 } as const;
 
 export default config;

@@ -1,7 +1,8 @@
 import { google, sheets_v4 } from 'googleapis';
 import config from '../../config';
 import { saleService } from '../sale/sale.service';
-import { ISheetSaleRow } from './google-sheets.interface';
+import { expenseService } from '../expense/expense.service';
+import { ISheetSaleRow, ISheetExpenseRow } from './google-sheets.interface';
 import logger from '../../utils/logger';
 
 let sheetsClient: sheets_v4.Sheets | null = null;
@@ -80,7 +81,7 @@ const syncUnsyncedSales = async (): Promise<void> => {
 
     await client.spreadsheets.values.append({
       spreadsheetId: config.googleSheets.spreadsheetId,
-      range: 'Sheet1!A:E',
+      range: 'Sales!A:E',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: rows },
     });
@@ -90,7 +91,42 @@ const syncUnsyncedSales = async (): Promise<void> => {
 
     logger.info(`Synced ${saleIds.length} sales to Google Sheets`);
   } catch (error) {
-    logger.error('Google Sheets sync failed:', error);
+    logger.error('Google Sheets sales sync failed:', error);
+  }
+};
+
+const syncUnsyncedExpenses = async (): Promise<void> => {
+  if (!isConfigured()) return;
+
+  try {
+    const unsyncedExpenses = await expenseService.getUnsyncedExpenses(50);
+
+    if (unsyncedExpenses.length === 0) return;
+
+    const client = getClient();
+    if (!client) return;
+
+    const rows = unsyncedExpenses.map(expense => [
+      expense.createdAt.toISOString(),
+      expense.user.name,
+      expense.user.telegramId,
+      expense.description,
+      Number(expense.amount),
+    ]);
+
+    await client.spreadsheets.values.append({
+      spreadsheetId: config.googleSheets.spreadsheetId,
+      range: 'Expenses!A:E',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: rows },
+    });
+
+    const expenseIds = unsyncedExpenses.map(e => e.id);
+    await expenseService.markExpensesSynced(expenseIds);
+
+    logger.info(`Synced ${expenseIds.length} expenses to Google Sheets`);
+  } catch (error) {
+    logger.error('Google Sheets expenses sync failed:', error);
   }
 };
 
@@ -102,7 +138,12 @@ const startPeriodicSync = (): void => {
 
   if (syncIntervalId) return;
 
-  syncIntervalId = setInterval(syncUnsyncedSales, SYNC_INTERVAL_MS);
+  const syncAll = async () => {
+    await syncUnsyncedSales();
+    await syncUnsyncedExpenses();
+  };
+
+  syncIntervalId = setInterval(syncAll, SYNC_INTERVAL_MS);
   logger.info(
     `Google Sheets periodic sync started (every ${SYNC_INTERVAL_MS / 1000}s)`,
   );
@@ -120,6 +161,7 @@ export const googleSheetsService = {
   isConfigured,
   appendSaleRow,
   syncUnsyncedSales,
+  syncUnsyncedExpenses,
   startPeriodicSync,
   stopPeriodicSync,
 };

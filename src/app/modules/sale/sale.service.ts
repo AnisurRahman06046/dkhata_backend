@@ -114,7 +114,13 @@ const deleteSale = async (saleId: string, userId: string) => {
 
 const getUnsyncedSales = async (limit = 50) => {
   return prisma.sale.findMany({
-    where: { syncedToSheets: false },
+    where: {
+      syncedToSheets: false,
+      user: {
+        plan: { not: 'FREE' },
+        planExpiresAt: { gt: new Date() },
+      },
+    },
     include: { user: { select: { telegramId: true, name: true } } },
     orderBy: { createdAt: 'asc' },
     take: limit,

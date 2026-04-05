@@ -6,6 +6,7 @@ import prisma from './lib/prisma';
 import { createBot, startBot, stopBot, getBotInstance } from './app/modules/telegram/telegram.bot';
 import { googleSheetsService } from './app/modules/google-sheets/google-sheets.service';
 import { dailyLedgerService } from './app/modules/daily-ledger/daily-ledger.service';
+import { subscriptionService } from './app/modules/subscription/subscription.service';
 import * as tpl from './app/modules/telegram/telegram.templates';
 
 let server: Server;
@@ -50,9 +51,10 @@ const startAutoCloseJob = () => {
         }
       }
 
-      // Midnight BD — auto-close yesterday's open ledgers
+      // Midnight BD — auto-close yesterday's open ledgers + expire plans
       if (bdHour === 0) {
         await dailyLedgerService.autoCloseYesterday();
+        await subscriptionService.expireExpiredPlans();
       }
     } catch (error) {
       logger.error('Auto-close job error:', error);

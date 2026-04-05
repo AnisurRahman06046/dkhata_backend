@@ -59,7 +59,13 @@ const deleteExpense = async (expenseId: string, userId: string) => {
 
 const getUnsyncedExpenses = async (limit = 50) => {
   return prisma.expense.findMany({
-    where: { syncedToSheets: false },
+    where: {
+      syncedToSheets: false,
+      user: {
+        plan: { not: 'FREE' },
+        planExpiresAt: { gt: new Date() },
+      },
+    },
     include: { user: { select: { telegramId: true, name: true } } },
     orderBy: { createdAt: 'asc' },
     take: limit,

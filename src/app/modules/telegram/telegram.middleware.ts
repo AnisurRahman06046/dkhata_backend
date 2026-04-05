@@ -1,6 +1,9 @@
 import { Context, MiddlewareFn } from 'telegraf';
 import { userService } from '../user/user.service';
+import { subscriptionService } from '../subscription/subscription.service';
+import config from '../../config';
 import logger from '../../utils/logger';
+import { PlanType } from '../../../../generated/prisma/client';
 
 export interface BotContext extends Context {
   state: {
@@ -9,7 +12,11 @@ export interface BotContext extends Context {
       telegramId: string;
       name: string;
       language: string;
+      plan: PlanType;
+      planExpiresAt: Date | null;
+      isPro: boolean;
     };
+    isAdmin?: boolean;
   };
 }
 
@@ -24,13 +31,19 @@ export const authMiddleware: MiddlewareFn<BotContext> = async (ctx, next) => {
     const user = await userService.getUserByTelegramId(telegramId);
 
     if (user) {
+      const isPro = subscriptionService.isProUser(user);
+
       ctx.state = ctx.state || {};
       ctx.state.user = {
         id: user.id,
         telegramId: user.telegramId,
         name: user.name,
         language: user.language,
+        plan: user.plan as PlanType,
+        planExpiresAt: user.planExpiresAt,
+        isPro,
       };
+      ctx.state.isAdmin = config.adminTelegramIds.includes(telegramId);
       return next();
     }
 

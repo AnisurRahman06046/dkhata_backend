@@ -94,15 +94,22 @@ export const helpMessage = (): string =>
   `\uD83D\uDCCA *Reports & Balance:*\n\n` +
   `  /balance \u2014 Live balance now\n` +
   `  /today \u2014 Full day report\n` +
-  `  /week \u2014 Last 7 days\n` +
-  `  /month \u2014 This month\n` +
+  `  /week \u2014 Last 7 days \u2B50\n` +
+  `  /month \u2014 This month \u2B50\n` +
   `  /history \u2014 Recent entries\n` +
   `${divider}` +
   `\u2699\uFE0F *Management:*\n\n` +
   `  /endday \u2014 Close & lock today\n` +
   `  /delete \u2014 Remove last entry\n` +
   `  /setbalance \u2014 Set opening cash\n` +
-  `  /start \u2014 Restart bot`;
+  `  /start \u2014 Restart bot\n` +
+  `${divider}` +
+  `\u2B50 *Pro & Subscription:*\n\n` +
+  `  /subscribe \u2014 Upgrade to Pro\n` +
+  `  /pay \u2014 Submit payment\n` +
+  `  /mystatus \u2014 View your plan\n` +
+  `  /referral \u2014 Referral program\n` +
+  `  /refer \u2014 Apply referral code`;
 
 // ─── SALE CONFIRMATION ─────────────────────────
 
@@ -423,3 +430,155 @@ export const errorDayClosed = (): string =>
   `\uD83D\uDD12 *Day Already Closed*\n\n` +
   `Today\u2019s ledger is locked.\n` +
   `New entries will be recorded for tomorrow.`;
+
+// ─── SUBSCRIPTION TEMPLATES ─────────────────────────
+
+export const subscribeMessage = (): string =>
+  `\u2B50 *Upgrade to Pro Business*${divider}` +
+  `\uD83D\uDCCA *Pro Features:*\n\n` +
+  `  \u2705 Weekly reports (/week)\n` +
+  `  \u2705 Monthly reports (/month)\n` +
+  `  \u2705 Google Sheets auto-sync\n` +
+  `  \u2705 Referral rewards\n` +
+  `${divider}` +
+  `\uD83D\uDCB0 *Pricing:*\n\n` +
+  `  \uD83D\uDCCD Monthly:  *199 BDT/month*\n` +
+  `  \uD83D\uDCCD Yearly:     *1,499 BDT/year* (Save 30%)\n` +
+  `${divider}` +
+  `\uD83D\uDCB3 *How to Pay:*\n\n` +
+  `  1. Send *199 BDT* (or 1,499) to:\n` +
+  `     bKash: *01XXXXXXXXX*\n` +
+  `     Nagad: *01XXXXXXXXX*\n\n` +
+  `  2. Copy your Transaction ID\n\n` +
+  `  3. Send:\n` +
+  `     \`/pay bkash TXN123 monthly\`\n` +
+  `     \`/pay nagad TXN456 yearly\`\n\n` +
+  `  4. Wait for admin verification \u2705\n` +
+  `${divider}` +
+  `\uD83C\uDF81 _Invite 3 friends and get 1 month free! Use /referral_`;
+
+export const paymentSubmitted = (method: string, txnId: string, plan: string): string =>
+  `\u2705 *Payment Submitted*${divider}` +
+  `\uD83D\uDCB3 Method:    *${method}*\n` +
+  `\uD83D\uDD22 TXN ID:     *${txnId}*\n` +
+  `\uD83D\uDCCB Plan:        *${plan}*${divider}` +
+  `\u23F3 _Awaiting admin verification. You\u2019ll be notified once confirmed._`;
+
+export const paymentVerifiedUser = (plan: string, expiresAt: Date): string =>
+  `\uD83C\uDF89 *Payment Verified!*${divider}` +
+  `\u2B50 Plan: *${plan}*\n` +
+  `\uD83D\uDCC5 Expires: *${formatBDDate(expiresAt)}*${divider}` +
+  `You now have access to all Pro features!\n` +
+  `Try /week or /month to see your reports.`;
+
+export const paymentRejected = (reason: string): string =>
+  `\u274C *Payment Rejected*${divider}` +
+  `Reason: ${reason}\n\n` +
+  `Please try again with a valid transaction.\nUse /subscribe for payment details.`;
+
+export const planStatusMessage = (data: {
+  plan: string;
+  isPro: boolean;
+  daysLeft: number;
+  streakDays: number;
+  referralCode: string;
+}): string => {
+  const planName = data.isPro ? '\u2B50 Pro Business' : '\uD83D\uDCCB Basic Khata (Free)';
+  let msg =
+    `\uD83D\uDCCB *Your Plan*${divider}` +
+    `\uD83D\uDCE6 Plan: *${planName}*\n` +
+    `\uD83D\uDD25 Streak: *${data.streakDays} days*\n`;
+
+  if (data.isPro) {
+    msg += `\uD83D\uDCC5 Expires in: *${data.daysLeft} days*\n`;
+  }
+
+  msg += `${divider}`;
+
+  if (!data.isPro) {
+    msg += `\u2B50 _Upgrade with /subscribe_\n`;
+  }
+
+  msg += `\uD83C\uDF81 Referral code: \`${data.referralCode}\``;
+  return msg;
+};
+
+export const referralMessage = (data: {
+  referralCode: string;
+  totalReferrals: number;
+  unrewardedCount: number;
+  referralsNeeded: number;
+}): string =>
+  `\uD83C\uDF81 *Referral Program*${divider}` +
+  `\uD83D\uDD17 Your code: \`${data.referralCode}\`\n\n` +
+  `Share this code with friends!\n` +
+  `When they join and use your code,\nyou earn rewards.${divider}` +
+  `\uD83D\uDCCA *Stats:*\n\n` +
+  `  \uD83D\uDC65 Total referrals: *${data.totalReferrals}*\n` +
+  `  \u2B50 Progress: *${data.unrewardedCount}/${3}*\n` +
+  `  \uD83C\uDFAF Need ${data.referralsNeeded} more for free month!${divider}` +
+  `_Ask friends to send:_ \`/refer ${data.referralCode}\``;
+
+export const referralApplied = (referrerName: string): string =>
+  `\u2705 *Referral Applied!*\n\n` +
+  `You were referred by *${referrerName}*.\n` +
+  `_They\u2019re one step closer to a free Pro month!_`;
+
+export const proFeatureLocked = (feature: string): string =>
+  `\uD83D\uDD12 *Pro Feature*${divider}` +
+  `*${feature}* is available for Pro users.\n\n` +
+  `\u2B50 Upgrade for just *199 BDT/month*\n` +
+  `Use /subscribe for details.`;
+
+export const upgradeNudge = (message: string): string =>
+  `\n${divider}\u2B50 _${message}_\n_Use /subscribe to upgrade._`;
+
+// ─── ADMIN TEMPLATES ─────────────────────────
+
+export const adminPaymentsList = (
+  payments: Array<{
+    id: string;
+    user: { name: string; telegramId: string };
+    method: string;
+    transactionId: string;
+    planType: string;
+    amount: { toString(): string };
+    createdAt: Date;
+  }>,
+  total: number,
+): string => {
+  if (payments.length === 0) {
+    return `\uD83D\uDCCB *Pending Payments*${divider}No pending payments.`;
+  }
+
+  let msg = `\uD83D\uDCCB *Pending Payments* (${total})${divider}`;
+
+  payments.forEach((p, i) => {
+    msg += `${i + 1}. *${p.user.name}* (${p.user.telegramId})\n`;
+    msg += `   ${p.method} \u2022 TXN: \`${p.transactionId}\`\n`;
+    msg += `   ${p.planType} \u2022 ${formatCurrency(p.amount)} BDT\n`;
+    msg += `   ID: \`${p.id.slice(0, 8)}\`\n`;
+    msg += `   ${formatBDDate(p.createdAt)} ${formatBDTime(p.createdAt)}\n\n`;
+  });
+
+  msg += `${divider}`;
+  msg += `\u2705 \`/admin_verify <id>\`\n`;
+  msg += `\u274C \`/admin_reject <id> [reason]\``;
+
+  return msg;
+};
+
+export const adminVerified = (userName: string, plan: string): string =>
+  `\u2705 *Payment Verified*\n\n` +
+  `User: *${userName}*\n` +
+  `Plan: *${plan}*\n\n` +
+  `_User has been notified._`;
+
+export const adminRejected = (userName: string, reason: string): string =>
+  `\u274C *Payment Rejected*\n\n` +
+  `User: *${userName}*\n` +
+  `Reason: ${reason}\n\n` +
+  `_User has been notified._`;
+
+export const adminUnauthorized = (): string =>
+  `\u26D4 *Unauthorized*\n\nYou are not an admin.`;

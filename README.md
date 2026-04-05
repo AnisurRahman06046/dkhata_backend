@@ -360,6 +360,219 @@ TELEGRAM_WEBHOOK_URL=https://your-domain.com
 | `npm run docker:up` | Start containers |
 | `npm run docker:down` | Stop containers |
 
+---
+
+## User Manual: Onboarding & Operations Guide
+
+### Step 1: Set Up the System (You, the Admin)
+
+Before onboarding any user, complete the setup:
+
+1. **Create a Telegram bot** via [@BotFather](https://t.me/BotFather) and get the token
+2. **Deploy the backend** (Docker or bare metal — see Getting Started above)
+3. **Set `ADMIN_TELEGRAM_IDS`** in `.env` with your Telegram user ID (comma-separated for multiple admins):
+   ```env
+   ADMIN_TELEGRAM_IDS=123456789,987654321
+   ```
+   To find your Telegram ID, message [@userinfobot](https://t.me/userinfobot)
+4. **Set up Google Sheets** (optional, for Pro users) — see Google Sheets Integration above
+5. **Set up bKash/Nagad payment numbers** — update the payment numbers in `src/app/modules/telegram/telegram.templates.ts` in the `subscribeMessage()` function (search for `01XXXXXXXXX`)
+
+### Step 2: Onboard a New User (Shop Owner)
+
+Onboarding is fully self-service via Telegram. Share these instructions with the shop owner:
+
+1. **Open Telegram** and search for your bot by its username (e.g., `@DigitalKhataBot`)
+2. **Tap Start** or send `/start` — this registers them automatically
+3. **Set opening cash** (optional): Send `/setbalance` and enter their current cash in hand (e.g., `5000`)
+4. **Start recording**:
+   - To record a sale: just type `Shirt 500` or `500 Shirt`
+   - To record an expense: type `-50` or `-100 Tea`
+   - Bangla numerals work: `Lungi ৫০০`
+5. **Check balance anytime**: Send `/balance`
+6. **End the day**: Send `/endday` at night (or it auto-closes at midnight)
+
+That's it. No passwords, no forms, no downloads. The user is active from the moment they tap `/start`.
+
+### Step 3: User's Daily Workflow
+
+Share this simple routine with each shop owner:
+
+```
+Morning:
+  - Open Telegram → your bot
+  - Balance shows yesterday's closing automatically
+
+During the day:
+  - Each sale: type "Product Price" (e.g., Shirt 500)
+  - Each expense: type "-Amount" or "-Amount Description" (e.g., -100 Tea)
+  - Check balance anytime: /balance
+
+End of day:
+  - Send /endday to close the day
+  - See your profit/loss summary
+  - Tomorrow starts with today's closing balance
+```
+
+### Step 4: Subscription & Payment Management
+
+#### Plans
+
+| Plan | Price | Features |
+|------|-------|----------|
+| **Basic Khata** (Free) | 0 BDT | Sales, expenses, balance, today report, history, delete, endday |
+| **Pro Monthly** | 199 BDT/month | Everything in Basic + weekly reports, monthly reports, Google Sheets sync, referral rewards |
+| **Pro Yearly** | 1,499 BDT/year | Same as Pro Monthly (save 30%) |
+
+#### User Upgrade Flow
+
+1. User sends `/subscribe` — sees pricing and payment instructions
+2. User sends payment via bKash or Nagad to your number
+3. User sends `/pay bkash TXN123ABC monthly` (or `nagad`, `yearly`)
+4. Payment enters **PENDING** status
+5. **Admin verifies** (see below)
+6. User gets notified and Pro features activate immediately
+
+#### Admin Payment Commands
+
+| Command | Description |
+|---------|-------------|
+| `/admin_payments` | List all pending payments with details |
+| `/admin_verify <id>` | Verify a payment — activates Pro for the user |
+| `/admin_reject <id> [reason]` | Reject a payment with optional reason |
+
+The `<id>` is the short 8-character ID shown in the payment list. Example:
+
+```
+/admin_payments
+  → Shows:
+    1. Rahim (123456789)
+       BKASH • TXN: ABC123XYZ
+       PRO_MONTHLY • 199 BDT
+       ID: a1b2c3d4
+       5 Apr 2026 2:30 PM
+
+/admin_verify a1b2c3d4
+  → Payment verified, user notified, Pro activated
+
+/admin_reject a1b2c3d4 Wrong TXN ID
+  → Payment rejected, user notified with reason
+```
+
+**Plan stacking**: If a user pays again while still Pro, the new duration is added on top of the existing expiry (not replaced).
+
+**Auto-expiry**: At midnight BD time, expired plans are automatically downgraded to Free.
+
+### Step 5: Referral System
+
+Users can invite others to earn free Pro:
+
+1. User sends `/referral` — sees their unique referral code and stats
+2. User shares the code with friends
+3. Friend registers with `/start`, then sends `/refer <code>`
+4. After **3 successful referrals**, the referrer gets **1 month free Pro**
+5. Rewards stack — every 3 more referrals = another free month
+
+### Step 6: Monitoring & Operations
+
+#### Auto-Close Job (runs every 30 minutes)
+- **11 PM BD**: Sends `/endday` reminder to users with open ledgers
+- **Midnight BD**: Auto-closes yesterday's open ledgers + expires expired plans
+
+#### Google Sheets Sync (Pro users only)
+- Runs every 5 minutes
+- Sales go to the `Sales` sheet tab (columns: Date, User, TelegramID, Product, Price)
+- Expenses go to the `Expenses` sheet tab (columns: Date, User, TelegramID, Description, Amount)
+- Only Pro users' data is synced
+
+#### Health Checks
+```
+GET /health   → Basic ping
+GET /ready    → Database connectivity
+GET /live     → Uptime and memory usage
+```
+
+#### REST API for External Integrations
+
+If you want to build a web dashboard or connect other tools, use the REST API:
+
+```
+# Get a user's info
+GET /api/v1/users/123456789
+
+# Get today's summary
+GET /api/v1/summary/today?telegramId=123456789
+
+# Get this month's summary
+GET /api/v1/summary?telegramId=123456789&period=month
+
+# List all sales
+GET /api/v1/sales?telegramId=123456789&limit=50
+```
+
+### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Bot not responding | Check `TELEGRAM_BOT_TOKEN` in `.env`, restart server |
+| "Not registered" error | User needs to send `/start` first |
+| Balance seems wrong | User can send `/today` for full breakdown; use `/delete` to remove wrong entries |
+| Google Sheets not syncing | Check credentials in `.env`; only works for Pro users |
+| Payment stuck on PENDING | Admin must verify with `/admin_verify` |
+| Day didn't auto-close | Auto-close runs at midnight BD (UTC+6); check server logs |
+
+---
+
+## MongoDB vs PostgreSQL: Tradeoff Analysis
+
+### Current Stack: PostgreSQL + Prisma
+
+This is the right choice for DKB. Here's why, and what you'd gain/lose by switching.
+
+### What You'd Gain with MongoDB
+
+| Advantage | Details |
+|-----------|---------|
+| **Flexible schema** | No migrations needed when adding fields. Can store arbitrary product metadata per user without schema changes. |
+| **Easier horizontal scaling** | MongoDB sharding is built-in. If you ever hit millions of users across regions, it scales more naturally. |
+| **Embedded documents** | Could embed sales/expenses directly inside a User document, reducing joins for simple queries. |
+| **JSON-native** | Data is already BSON/JSON — no ORM type mapping needed. Good fit for unstructured/semi-structured data. |
+
+### What You'd Lose with MongoDB
+
+| Disadvantage | Impact on DKB |
+|--------------|---------------|
+| **No ACID transactions across collections** | Payment verification updates Payment + User atomically. MongoDB multi-document transactions exist but are slower, less reliable, and have more caveats. A failed transaction could leave a payment verified but user plan not activated. **This is critical for money-related operations.** |
+| **No referential integrity** | PostgreSQL enforces foreign keys (User→Sale, User→Expense, cascade deletes). MongoDB doesn't — a deleted user could leave orphaned sales forever. You'd need application-level cleanup. |
+| **Weaker aggregation for reports** | `/today`, `/week`, `/month` summaries use SQL `aggregate` (SUM, COUNT) with date range filters and index-backed queries. MongoDB aggregation pipeline can do this but is more verbose, harder to optimize, and doesn't integrate as cleanly with Prisma. |
+| **Prisma support is limited** | Prisma's MongoDB adapter lacks features vs PostgreSQL: no `$transaction` array syntax, no `createMany`, limited relation filtering. You'd need to rewrite service code significantly or drop Prisma for Mongoose. |
+| **Decimal precision** | PostgreSQL `Decimal(12,2)` guarantees exact financial arithmetic. MongoDB stores as `Double` (IEEE 754 floating point) by default — `0.1 + 0.2 !== 0.3`. You'd need `Decimal128` type with manual handling. |
+| **Daily ledger unique constraint** | `@@unique([userId, date])` is enforced at DB level in PostgreSQL. MongoDB unique indexes exist but are less battle-tested with compound keys + upserts. |
+| **Migration story** | Prisma migrations give you version-controlled, reviewable schema changes. MongoDB has no built-in migration tooling — schema changes are "just push and hope." |
+
+### DKB-Specific Verdict
+
+| Factor | PostgreSQL | MongoDB |
+|--------|-----------|---------|
+| Financial data integrity | Strong (ACID, Decimal) | Weak (eventual, Double) |
+| Payment transactions | Native multi-row TX | Fragile multi-doc TX |
+| Referential integrity | FK constraints | Application-level only |
+| Daily ledger carry-forward | Unique constraint + decimal math | Manual enforcement |
+| Aggregation reports | SQL SUM/COUNT, fast | Aggregation pipeline, verbose |
+| Prisma compatibility | Full support | Partial, many gaps |
+| Schema flexibility | Needs migrations | Schemaless |
+| Horizontal scaling | Vertical first, then read replicas | Built-in sharding |
+| Hosting cost | Slightly more (Supabase free tier helps) | Atlas free tier available |
+
+**Bottom line**: DKB is a **financial ledger system**. Every sale, expense, and balance must be exactly correct. PostgreSQL's ACID transactions, decimal precision, foreign keys, and Prisma support make it the clear choice. MongoDB's strengths (flexible schema, horizontal scaling) don't matter at DKB's scale and would actively hurt data integrity.
+
+Switch to MongoDB only if:
+- You pivot to storing unstructured data (e.g., product catalogs with varying attributes)
+- You reach 10M+ users and need horizontal sharding (unlikely for a Bangladesh-focused SaaS)
+- You drop Prisma entirely and adopt Mongoose with manual schema validation
+
+For DKB's current and foreseeable needs, **stay with PostgreSQL**.
+
 ## License
 
 ISC
