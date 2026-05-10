@@ -1,6 +1,7 @@
 import prisma from '../../../lib/prisma';
 import { NotFoundError } from '../../errors';
 import { TCreateUser, TUpdateUser } from './user.interface';
+import { UserMode } from '../../../../generated/prisma/client';
 
 const findOrCreateByTelegramId = async (
   telegramId: string,
@@ -48,6 +49,21 @@ const createUser = async (data: TCreateUser) => {
   return user;
 };
 
+const setMode = async (userId: string, mode: UserMode) => {
+  const existing = await prisma.user.findUnique({ where: { id: userId } });
+  if (!existing) {
+    throw new NotFoundError('User not found');
+  }
+  if (existing.mode) {
+    // Mode is one-time — never overwrite once set.
+    return existing;
+  }
+  return prisma.user.update({
+    where: { id: userId },
+    data: { mode },
+  });
+};
+
 const updateUser = async (telegramId: string, data: TUpdateUser) => {
   const existing = await getUserByTelegramId(telegramId);
   if (!existing) {
@@ -68,4 +84,5 @@ export const userService = {
   getUserById,
   createUser,
   updateUser,
+  setMode,
 };

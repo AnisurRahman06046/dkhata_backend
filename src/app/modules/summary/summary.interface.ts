@@ -20,3 +20,14 @@ export interface ISummaryResult {
   startDate: Date;
   endDate: Date;
 }
+
+export interface ICategoryBreakdownItem {
+  category: string;
+  total: number;
+  count: number;
+}
+
+export interface ICategoryBreakdown {
+  income: ICategoryBreakdownItem[];
+  expense: ICategoryBreakdownItem[];
+}

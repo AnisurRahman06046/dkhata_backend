@@ -77,11 +77,12 @@ const syncUnsyncedSales = async (): Promise<void> => {
       sale.user.telegramId,
       sale.productName,
       Number(sale.price),
+      sale.category ?? '',
     ]);
 
     await client.spreadsheets.values.append({
       spreadsheetId: config.googleSheets.spreadsheetId,
-      range: 'Sales!A:E',
+      range: 'Sales!A:F',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: rows },
     });
@@ -112,11 +113,12 @@ const syncUnsyncedExpenses = async (): Promise<void> => {
       expense.user.telegramId,
       expense.description,
       Number(expense.amount),
+      expense.category ?? '',
     ]);
 
     await client.spreadsheets.values.append({
       spreadsheetId: config.googleSheets.spreadsheetId,
-      range: 'Expenses!A:E',
+      range: 'Expenses!A:F',
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: rows },
     });

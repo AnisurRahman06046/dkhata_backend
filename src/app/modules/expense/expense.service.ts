@@ -7,16 +7,29 @@ const createExpense = async (
   userId: string,
   description: string,
   amount: number,
+  category?: string,
 ) => {
   const expense = await prisma.expense.create({
     data: {
       userId,
       description,
       amount: new Prisma.Decimal(amount),
+      category: category ?? null,
     },
   });
 
   return expense;
+};
+
+const getUserCategories = async (userId: string): Promise<string[]> => {
+  const rows = await prisma.expense.findMany({
+    where: { userId, category: { not: null } },
+    select: { category: true },
+    distinct: ['category'],
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+  return rows.map(r => r.category!).filter(Boolean);
 };
 
 const getExpensesByUser = async (filters: IExpenseFilters) => {
@@ -85,4 +98,5 @@ export const expenseService = {
   deleteExpense,
   getUnsyncedExpenses,
   markExpensesSynced,
+  getUserCategories,
 };

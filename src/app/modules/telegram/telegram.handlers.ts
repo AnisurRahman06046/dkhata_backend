@@ -1,4 +1,4 @@
-import { Telegraf, Scenes } from 'telegraf';
+import { Telegraf, Scenes, Markup } from 'telegraf';
 import { BotContext } from './telegram.middleware';
 import { parseInput } from './telegram.parser';
 import { userService } from '../user/user.service';
@@ -10,11 +10,27 @@ import { paymentService } from '../payment/payment.service';
 import { referralService } from '../referral/referral.service';
 import { subscriptionService } from '../subscription/subscription.service';
 import * as tpl from './telegram.templates';
+import { UserMode } from '../../../../generated/prisma/client';
 import logger from '../../utils/logger';
 
 type BotWithScenes = BotContext & Scenes.SceneContext;
 
 const md = { parse_mode: 'Markdown' as const };
+
+const modeKeyboard = Markup.inlineKeyboard([
+  [Markup.button.callback('\uD83C\uDFEA Shop Owner', 'mode:SHOP')],
+  [Markup.button.callback('\uD83D\uDC64 Personal Finance', 'mode:PERSONAL')],
+]);
+
+const needsMode = (mode: UserMode | null | undefined): boolean => !mode;
+
+const askToPickMode = async (ctx: BotContext) => {
+  const name = ctx.from?.first_name || 'there';
+  await ctx.reply(tpl.modePickerMessage(name), {
+    ...md,
+    ...modeKeyboard,
+  });
+};
 
 export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
   // ─── /start ────────────────────────────
@@ -37,25 +53,70 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
         }
       }
 
-      await ctx.reply(tpl.welcomeMessage(name), md);
+      if (needsMode(user.mode)) {
+        await askToPickMode(ctx);
+        return;
+      }
+
+      await ctx.reply(tpl.welcomeMessage(name, user.mode ?? undefined), md);
     } catch (error) {
       logger.error('Start command error:', error);
       await ctx.reply(tpl.errorGeneric(), md);
     }
   });
 
-  // ─── /addsale ──────────────────────────
-  bot.command('addsale', async ctx => {
-    await (ctx as BotWithScenes).scene.enter('add-sale-wizard');
+  // ─── Mode selection callback ────────────
+  bot.action(/^mode:(SHOP|PERSONAL)$/, async ctx => {
+    const user = ctx.state?.user;
+    if (!user) {
+      await ctx.answerCbQuery('Please /start first');
+      return;
+    }
+
+    if (!needsMode(user.mode)) {
+      await ctx.answerCbQuery('Mode already set');
+      return;
+    }
+
+    const mode = ctx.match[1] as UserMode;
+    try {
+      await userService.setMode(user.id, mode);
+      await ctx.answerCbQuery(`Mode set: ${mode}`);
+      try {
+        await ctx.editMessageReplyMarkup(undefined);
+      } catch {
+        // ignore — message might be uneditable
+      }
+      await ctx.reply(tpl.modeSelected(mode), md);
+    } catch (error) {
+      logger.error('Mode selection error:', error);
+      await ctx.answerCbQuery('Something went wrong');
+    }
   });
 
+  // ─── /addsale ──────────────────────────
+  const enterAddSale = async (ctx: BotWithScenes) => {
+    const user = ctx.state?.user;
+    if (user && needsMode(user.mode)) {
+      await askToPickMode(ctx);
+      return;
+    }
+    await ctx.scene.enter('add-sale-wizard');
+  };
+  bot.command('addsale', ctx => enterAddSale(ctx as BotWithScenes));
+  bot.command('addincome', ctx => enterAddSale(ctx as BotWithScenes));
+
   // ─── /expense or /addexpense ───────────
-  bot.command('expense', async ctx => {
-    await (ctx as BotWithScenes).scene.enter('add-expense-wizard');
-  });
-  bot.command('addexpense', async ctx => {
-    await (ctx as BotWithScenes).scene.enter('add-expense-wizard');
-  });
+  const enterAddExpense = async (ctx: BotWithScenes) => {
+    const user = ctx.state?.user;
+    if (user && needsMode(user.mode)) {
+      await askToPickMode(ctx);
+      return;
+    }
+    await ctx.scene.enter('add-expense-wizard');
+  };
+  bot.command('expense', ctx => enterAddExpense(ctx as BotWithScenes));
+  bot.command('addexpense', ctx => enterAddExpense(ctx as BotWithScenes));
 
   // ─── /setbalance ───────────────────────
   bot.command('setbalance', async ctx => {
@@ -69,10 +130,14 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
       await ctx.reply(tpl.errorNotRegistered(), md);
       return;
     }
+    if (needsMode(user.mode)) {
+      await askToPickMode(ctx);
+      return;
+    }
 
     try {
       const balance = await dailyLedgerService.getLiveBalance(user.id);
-      await ctx.reply(tpl.balanceMessage(balance), md);
+      await ctx.reply(tpl.balanceMessage(balance, user.mode ?? undefined), md);
     } catch (error) {
       logger.error('Balance command error:', error);
       await ctx.reply(tpl.errorGeneric(), md);
@@ -86,6 +151,10 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
       await ctx.reply(tpl.errorNotRegistered(), md);
       return;
     }
+    if (needsMode(user.mode)) {
+      await askToPickMode(ctx);
+      return;
+    }
 
     try {
       const [summary, sales, expenses] = await Promise.all([
@@ -95,11 +164,22 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
       ]);
 
       if (summary.transactionCount === 0 && summary.expenseCount === 0) {
-        await ctx.reply(tpl.todaySummaryEmpty(summary.openingBalance), md);
+        await ctx.reply(
+          tpl.todaySummaryEmpty(summary.openingBalance, user.mode ?? undefined),
+          md,
+        );
         return;
       }
 
-      await ctx.reply(tpl.todaySummary(summary, sales, expenses), md);
+      const breakdown =
+        user.mode === 'PERSONAL'
+          ? await summaryService.getCategoryBreakdown(user.id, 'today')
+          : undefined;
+
+      await ctx.reply(
+        tpl.todaySummary(summary, sales, expenses, user.mode ?? undefined, breakdown),
+        md,
+      );
     } catch (error) {
       logger.error('Today command error:', error);
       await ctx.reply(tpl.errorGeneric(), md);
@@ -123,7 +203,7 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
       const total = salesResult.total + expensesResult.total;
 
       if (total === 0) {
-        await ctx.reply(tpl.historyEmpty(), md);
+        await ctx.reply(tpl.historyEmpty(user.mode ?? undefined), md);
         return;
       }
 
@@ -167,8 +247,18 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
 
     try {
       const summary = await summaryService.getSummary(user.id, 'week');
+      const breakdown =
+        user.mode === 'PERSONAL'
+          ? await summaryService.getCategoryBreakdown(user.id, 'week')
+          : undefined;
       await ctx.reply(
-        tpl.periodSummary(summary, 'Weekly Report', '\uD83D\uDCC5'),
+        tpl.periodSummary(
+          summary,
+          'Weekly Report',
+          '\uD83D\uDCC5',
+          user.mode ?? undefined,
+          breakdown,
+        ),
         md,
       );
     } catch (error) {
@@ -192,8 +282,18 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
 
     try {
       const summary = await summaryService.getSummary(user.id, 'month');
+      const breakdown =
+        user.mode === 'PERSONAL'
+          ? await summaryService.getCategoryBreakdown(user.id, 'month')
+          : undefined;
       await ctx.reply(
-        tpl.periodSummary(summary, 'Monthly Report', '\uD83D\uDCC6'),
+        tpl.periodSummary(
+          summary,
+          'Monthly Report',
+          '\uD83D\uDCC6',
+          user.mode ?? undefined,
+          breakdown,
+        ),
         md,
       );
     } catch (error) {
@@ -212,7 +312,7 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
 
     try {
       const result = await dailyLedgerService.endDay(user.id);
-      await ctx.reply(tpl.endDayMessage(result), md);
+      await ctx.reply(tpl.endDayMessage(result, user.mode ?? undefined), md);
     } catch (error) {
       logger.error('Endday command error:', error);
       await ctx.reply(tpl.errorGeneric(), md);
@@ -269,7 +369,13 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
 
       const balance = await dailyLedgerService.getLiveBalance(user.id);
       await ctx.reply(
-        tpl.deleteConfirmation(type, name, amount, balance.currentBalance),
+        tpl.deleteConfirmation(
+          type,
+          name,
+          amount,
+          balance.currentBalance,
+          user.mode ?? undefined,
+        ),
         md,
       );
     } catch (error) {
@@ -532,7 +638,8 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
 
   // ─── /help ─────────────────────────────
   bot.help(async ctx => {
-    await ctx.reply(tpl.helpMessage(), md);
+    const user = ctx.state?.user;
+    await ctx.reply(tpl.helpMessage(user?.mode ?? undefined), md);
   });
 
   // ─── Text fallback (quick sale or expense) ──
@@ -542,6 +649,10 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
       await ctx.reply(tpl.errorNotRegistered(), md);
       return;
     }
+    if (needsMode(user.mode)) {
+      await askToPickMode(ctx);
+      return;
+    }
 
     const text = ctx.message.text;
     if (text.startsWith('/')) return;
@@ -549,18 +660,23 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
     const parsed = parseInput(text);
 
     if (!parsed) {
-      await ctx.reply(tpl.errorInvalidInput(), md);
+      await ctx.reply(tpl.errorInvalidInput(user.mode ?? undefined), md);
       return;
     }
 
     try {
       if (parsed.type === 'sale') {
-        const { productName, price } = parsed.data;
-        await saleService.createSaleByUserId(user.id, productName, price);
+        const { productName, price, category } = parsed.data;
+        await saleService.createSaleByUserId(user.id, productName, price, 1, category);
         const balance = await dailyLedgerService.getLiveBalance(user.id);
-        let reply = tpl.saleConfirmation(productName, price, balance.currentBalance);
+        let reply = tpl.saleConfirmation(
+          productName,
+          price,
+          balance.currentBalance,
+          user.mode ?? undefined,
+          category,
+        );
 
-        // Streak + upgrade trigger (fire-and-forget)
         const dateStr = dailyLedgerService.getBDDateString();
         await subscriptionService.checkAndUpdateStreak(user.id, dateStr);
 
@@ -576,12 +692,18 @@ export const registerHandlers = (bot: Telegraf<BotWithScenes>) => {
 
         await ctx.reply(reply, md);
       } else {
-        const { description, amount } = parsed.data;
-        await expenseService.createExpense(user.id, description, amount);
+        const { description, amount, category } = parsed.data;
+        await expenseService.createExpense(user.id, description, amount, category);
         await dailyLedgerService.recordExpense(user.id, amount);
         const balance = await dailyLedgerService.getLiveBalance(user.id);
         await ctx.reply(
-          tpl.expenseConfirmation(description, amount, balance.currentBalance),
+          tpl.expenseConfirmation(
+            description,
+            amount,
+            balance.currentBalance,
+            user.mode ?? undefined,
+            category,
+          ),
           md,
         );
       }

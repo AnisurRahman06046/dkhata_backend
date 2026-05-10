@@ -1,6 +1,6 @@
 import prisma from '../../../lib/prisma';
 import { dailyLedgerService } from '../daily-ledger/daily-ledger.service';
-import { ISummaryResult } from './summary.interface';
+import { ICategoryBreakdown, ISummaryResult } from './summary.interface';
 
 const BD_TIMEZONE_OFFSET_MS = 6 * 60 * 60 * 1000;
 
@@ -136,9 +136,58 @@ const getExpensesListForPeriod = async (userId: string, period: string) => {
   return expenses;
 };
 
+const getCategoryBreakdown = async (
+  userId: string,
+  period: string,
+): Promise<ICategoryBreakdown> => {
+  const { startDate, endDate } = getDateRange(period);
+
+  const [incomeRows, expenseRows] = await Promise.all([
+    prisma.sale.groupBy({
+      by: ['category'],
+      where: {
+        userId,
+        category: { not: null },
+        createdAt: { gte: startDate, lte: endDate },
+      },
+      _sum: { price: true },
+      _count: { _all: true },
+    }),
+    prisma.expense.groupBy({
+      by: ['category'],
+      where: {
+        userId,
+        category: { not: null },
+        createdAt: { gte: startDate, lte: endDate },
+      },
+      _sum: { amount: true },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const income = incomeRows
+    .map(r => ({
+      category: r.category ?? 'uncategorized',
+      total: r._sum.price ? Number(r._sum.price) : 0,
+      count: r._count._all,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const expense = expenseRows
+    .map(r => ({
+      category: r.category ?? 'uncategorized',
+      total: r._sum.amount ? Number(r._sum.amount) : 0,
+      count: r._count._all,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  return { income, expense };
+};
+
 export const summaryService = {
   getSummary,
   getSalesListForPeriod,
   getExpensesListForPeriod,
   getDateRange,
+  getCategoryBreakdown,
 };

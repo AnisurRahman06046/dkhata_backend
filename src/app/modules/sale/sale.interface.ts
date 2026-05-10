@@ -6,6 +6,7 @@ export const createSaleSchema = z.object({
     productName: z.string().min(1, 'Product name is required').max(200),
     price: z.number().positive('Price must be a positive number'),
     quantity: z.number().int().positive().default(1),
+    category: z.string().min(1).max(50).optional(),
   }),
 });
 

@@ -6,13 +6,14 @@ import { userService } from '../user/user.service';
 import { NotFoundError } from '../../errors';
 
 const createSale = catchAsync(async (req, res) => {
-  const { telegramId, productName, price, quantity } = req.body;
+  const { telegramId, productName, price, quantity, category } = req.body;
 
   const sale = await saleService.createSale(
     telegramId,
     productName,
     price,
     quantity,
+    category,
   );
 
   sendApiResponse(res, httpStatus.CREATED, 'Sale recorded successfully', sale);

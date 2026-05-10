@@ -6,7 +6,7 @@ import { userService } from '../user/user.service';
 import { NotFoundError } from '../../errors';
 
 const createExpense = catchAsync(async (req, res) => {
-  const { telegramId, description, amount } = req.body;
+  const { telegramId, description, amount, category } = req.body;
 
   const user = await userService.getUserByTelegramId(telegramId);
   if (!user) throw new NotFoundError('User not found');
@@ -15,6 +15,7 @@ const createExpense = catchAsync(async (req, res) => {
     user.id,
     description,
     amount,
+    category,
   );
 
   sendApiResponse(

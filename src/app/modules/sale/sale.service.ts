@@ -19,6 +19,7 @@ const createSale = async (
   productName: string,
   price: number,
   quantity = 1,
+  category?: string,
 ) => {
   const user = await userService.getUserByTelegramId(telegramId);
   if (!user) {
@@ -31,10 +32,10 @@ const createSale = async (
       productName,
       price: new Prisma.Decimal(price),
       quantity,
+      category: category ?? null,
     },
   });
 
-  // Update daily ledger
   await dailyLedgerService.recordSale(user.id, price);
 
   return sale;
@@ -45,6 +46,7 @@ const createSaleByUserId = async (
   productName: string,
   price: number,
   quantity = 1,
+  category?: string,
 ) => {
   const sale = await prisma.sale.create({
     data: {
@@ -52,13 +54,24 @@ const createSaleByUserId = async (
       productName,
       price: new Prisma.Decimal(price),
       quantity,
+      category: category ?? null,
     },
   });
 
-  // Update daily ledger
   await dailyLedgerService.recordSale(userId, price);
 
   return sale;
+};
+
+const getUserCategories = async (userId: string): Promise<string[]> => {
+  const rows = await prisma.sale.findMany({
+    where: { userId, category: { not: null } },
+    select: { category: true },
+    distinct: ['category'],
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  });
+  return rows.map(r => r.category!).filter(Boolean);
 };
 
 const getSalesByUser = async (filters: ISaleFilters) => {
@@ -142,4 +155,5 @@ export const saleService = {
   deleteSale,
   getUnsyncedSales,
   markSalesSynced,
+  getUserCategories,
 };

@@ -5,6 +5,7 @@ export const createExpenseSchema = z.object({
     telegramId: z.string().min(1, 'Telegram ID is required'),
     description: z.string().min(1, 'Description is required').max(200),
     amount: z.number().positive('Amount must be a positive number'),
+    category: z.string().min(1).max(50).optional(),
   }),
 });
 

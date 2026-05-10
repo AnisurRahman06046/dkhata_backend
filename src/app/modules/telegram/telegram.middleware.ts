@@ -3,7 +3,7 @@ import { userService } from '../user/user.service';
 import { subscriptionService } from '../subscription/subscription.service';
 import config from '../../config';
 import logger from '../../utils/logger';
-import { PlanType } from '../../../../generated/prisma/client';
+import { PlanType, UserMode } from '../../../../generated/prisma/client';
 
 export interface BotContext extends Context {
   state: {
@@ -12,6 +12,7 @@ export interface BotContext extends Context {
       telegramId: string;
       name: string;
       language: string;
+      mode: UserMode | null;
       plan: PlanType;
       planExpiresAt: Date | null;
       isPro: boolean;
@@ -39,6 +40,7 @@ export const authMiddleware: MiddlewareFn<BotContext> = async (ctx, next) => {
         telegramId: user.telegramId,
         name: user.name,
         language: user.language,
+        mode: user.mode as UserMode | null,
         plan: user.plan as PlanType,
         planExpiresAt: user.planExpiresAt,
         isPro,

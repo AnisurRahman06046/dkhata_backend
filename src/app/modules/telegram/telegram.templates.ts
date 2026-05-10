@@ -1,4 +1,5 @@
 import { ISummaryResult } from '../summary/summary.interface';
+import { UserMode } from '../../../../generated/prisma/client';
 
 const BD_OFFSET_MS = 6 * 60 * 60 * 1000;
 
@@ -34,12 +35,14 @@ interface SaleItem {
   productName: string;
   price: { toString(): string };
   createdAt: Date;
+  category?: string | null;
 }
 
 interface ExpenseItem {
   description: string;
   amount: { toString(): string };
   createdAt: Date;
+  category?: string | null;
 }
 
 interface TransactionItem {
@@ -50,126 +53,307 @@ interface TransactionItem {
   id: string;
 }
 
+// ─── MODE-AWARE LABELS ─────────────────────────
+
+const isPersonal = (mode?: UserMode): boolean => mode === 'PERSONAL';
+
+const labels = (mode?: UserMode) => ({
+  inLabel: isPersonal(mode) ? 'Income' : 'Sales',
+  inLabelSingular: isPersonal(mode) ? 'Income' : 'Sale',
+  outLabel: isPersonal(mode) ? 'Expenses' : 'Expenses',
+  addInCmd: isPersonal(mode) ? '/addincome' : '/addsale',
+  inItemLabel: isPersonal(mode) ? 'Source' : 'Product',
+  inNameField: isPersonal(mode) ? 'Source' : 'Product',
+});
+
+// ─── PRESET CATEGORIES (PERSONAL MODE) ─────────────────────────
+
+export const PERSONAL_INCOME_CATEGORIES = [
+  'Salary',
+  'Freelance',
+  'Business',
+  'Gift',
+  'Investment',
+  'Other',
+];
+
+export const PERSONAL_EXPENSE_CATEGORIES = [
+  'Food',
+  'Transport',
+  'Bills',
+  'Rent',
+  'Health',
+  'Shopping',
+  'Entertainment',
+  'Education',
+  'Other',
+];
+
+// ─── MODE PICKER ─────────────────────────
+
+export const modePickerMessage = (name: string): string =>
+  `\uD83D\uDC4B *Welcome, ${name}!*${divider}` +
+  `How will you use this bot?\n\n` +
+  `\uD83C\uDFEA *Shop Owner* \u2014 track sales & expenses for your shop\n\n` +
+  `\uD83D\uDC64 *Personal Finance* \u2014 track your income & spending\n\n` +
+  `_Tap a button below to choose._\n` +
+  `_This choice is one-time and cannot be changed later._`;
+
+export const modeSelected = (mode: UserMode): string => {
+  if (mode === 'PERSONAL') {
+    return (
+      `\u2705 *Personal Finance mode activated*${divider}` +
+      `\uD83D\uDE80 *Quick Start:*\n\n` +
+      `\uD83D\uDFE2 Income: \`Salary 50000\` or \`50000 Salary\`\n` +
+      `\uD83D\uDD34 Expense: \`-200 Lunch\`\n` +
+      `\uD83C\uDFF7\uFE0F Add category: \`-200 Lunch #food\`\n\n` +
+      `Or use /addincome and /expense for guided entry.\n\n` +
+      `Use /help to see all commands.`
+    );
+  }
+  return (
+    `\u2705 *Shop Owner mode activated*${divider}` +
+    `\uD83D\uDE80 *Quick Start:*\n\n` +
+    `\uD83D\uDFE2 Add sale: \`Shirt 500\`\n` +
+    `\uD83D\uDD34 Add expense: \`-50\` or /expense\n\n` +
+    `Or use /addsale and /expense for guided entry.\n\n` +
+    `Use /help to see all commands.`
+  );
+};
+
 // ─── WELCOME ─────────────────────────
 
-export const welcomeMessage = (name: string): string =>
-  `\uD83D\uDCD2 *Digital Khata Bot*${divider}` +
-  `Assalamu Alaikum, *${name}*!\n` +
-  `Your digital sales diary is ready.\n` +
-  `${divider}` +
-  `\uD83D\uDE80 *Quick Start:*\n\n` +
-  `\uD83D\uDFE2 Add sale: \`Shirt 500\`\n` +
-  `\uD83D\uDD34 Add expense: \`-50\` or /expense\n` +
-  `${divider}` +
-  `\uD83D\uDCCB *Commands:*\n\n` +
-  `\uD83D\uDCE5 /addsale \u2014 Add sale (guided)\n` +
-  `\uD83D\uDCE4 /expense \u2014 Add expense (guided)\n` +
-  `\uD83D\uDCB0 /balance \u2014 Live balance\n` +
-  `\uD83D\uDCCA /today \u2014 Today\u2019s report\n` +
-  `\uD83D\uDCC5 /week \u2014 Weekly report\n` +
-  `\uD83D\uDCC6 /month \u2014 Monthly report\n` +
-  `\uD83D\uDCDC /history \u2014 Recent entries\n` +
-  `\uD83C\uDFD9\uFE0F /endday \u2014 Close today\n` +
-  `\u274C /delete \u2014 Remove last entry\n` +
-  `\u2753 /help \u2014 All commands\n` +
-  `${divider}` +
-  `\uD83D\uDCA1 _Tip: Use /setbalance to set your opening cash_`;
+export const welcomeMessage = (name: string, mode?: UserMode): string => {
+  if (isPersonal(mode)) {
+    return (
+      `\uD83D\uDCD2 *Digital Khata Bot*${divider}` +
+      `Assalamu Alaikum, *${name}*!\n` +
+      `Your personal finance tracker is ready.\n` +
+      `${divider}` +
+      `\uD83D\uDE80 *Quick Start:*\n\n` +
+      `\uD83D\uDFE2 Add income: \`Salary 50000\`\n` +
+      `\uD83D\uDD34 Add expense: \`-200 Lunch\` or /expense\n` +
+      `\uD83C\uDFF7\uFE0F Tag category: \`-200 Lunch #food\`\n` +
+      `${divider}` +
+      `\uD83D\uDCCB *Commands:*\n\n` +
+      `\uD83D\uDCE5 /addincome \u2014 Add income (guided)\n` +
+      `\uD83D\uDCE4 /expense \u2014 Add expense (guided)\n` +
+      `\uD83D\uDCB0 /balance \u2014 Live balance\n` +
+      `\uD83D\uDCCA /today \u2014 Today\u2019s report\n` +
+      `\uD83D\uDCC5 /week \u2014 Weekly report\n` +
+      `\uD83D\uDCC6 /month \u2014 Monthly report\n` +
+      `\uD83D\uDCDC /history \u2014 Recent entries\n` +
+      `\uD83C\uDFD9\uFE0F /endday \u2014 Close today\n` +
+      `\u274C /delete \u2014 Remove last entry\n` +
+      `\u2753 /help \u2014 All commands\n` +
+      `${divider}` +
+      `\uD83D\uDCA1 _Tip: Use /setbalance to set your starting cash_`
+    );
+  }
+  return (
+    `\uD83D\uDCD2 *Digital Khata Bot*${divider}` +
+    `Assalamu Alaikum, *${name}*!\n` +
+    `Your digital sales diary is ready.\n` +
+    `${divider}` +
+    `\uD83D\uDE80 *Quick Start:*\n\n` +
+    `\uD83D\uDFE2 Add sale: \`Shirt 500\`\n` +
+    `\uD83D\uDD34 Add expense: \`-50\` or /expense\n` +
+    `${divider}` +
+    `\uD83D\uDCCB *Commands:*\n\n` +
+    `\uD83D\uDCE5 /addsale \u2014 Add sale (guided)\n` +
+    `\uD83D\uDCE4 /expense \u2014 Add expense (guided)\n` +
+    `\uD83D\uDCB0 /balance \u2014 Live balance\n` +
+    `\uD83D\uDCCA /today \u2014 Today\u2019s report\n` +
+    `\uD83D\uDCC5 /week \u2014 Weekly report\n` +
+    `\uD83D\uDCC6 /month \u2014 Monthly report\n` +
+    `\uD83D\uDCDC /history \u2014 Recent entries\n` +
+    `\uD83C\uDFD9\uFE0F /endday \u2014 Close today\n` +
+    `\u274C /delete \u2014 Remove last entry\n` +
+    `\u2753 /help \u2014 All commands\n` +
+    `${divider}` +
+    `\uD83D\uDCA1 _Tip: Use /setbalance to set your opening cash_`
+  );
+};
 
 // ─── HELP ─────────────────────────
 
-export const helpMessage = (): string =>
-  `\u2753 *Help \u2014 Digital Khata Bot*${divider}` +
-  `\uD83D\uDFE2 *Recording Sales:*\n\n` +
-  `  \`Shirt 500\` \u2014 quick entry\n` +
-  `  \`Rice 5kg 350\` \u2014 with description\n` +
-  `  \`500 Shirt\` \u2014 price first\n` +
-  `  \`Lungi \u09EB\u09E6\u09E6\` \u2014 Bangla numerals\n` +
-  `  /addsale \u2014 step by step\n` +
-  `${divider}` +
-  `\uD83D\uDD34 *Recording Expenses:*\n\n` +
-  `  \`-50\` \u2014 quick expense\n` +
-  `  \`-100 Tea\` \u2014 with description\n` +
-  `  /expense \u2014 step by step\n` +
-  `${divider}` +
-  `\uD83D\uDCCA *Reports & Balance:*\n\n` +
-  `  /balance \u2014 Live balance now\n` +
-  `  /today \u2014 Full day report\n` +
-  `  /week \u2014 Last 7 days \u2B50\n` +
-  `  /month \u2014 This month \u2B50\n` +
-  `  /history \u2014 Recent entries\n` +
-  `${divider}` +
-  `\u2699\uFE0F *Management:*\n\n` +
-  `  /endday \u2014 Close & lock today\n` +
-  `  /delete \u2014 Remove last entry\n` +
-  `  /setbalance \u2014 Set opening cash\n` +
-  `  /start \u2014 Restart bot\n` +
-  `${divider}` +
-  `\u2B50 *Pro & Subscription:*\n\n` +
-  `  /subscribe \u2014 Upgrade to Pro\n` +
-  `  /pay \u2014 Submit payment\n` +
-  `  /mystatus \u2014 View your plan\n` +
-  `  /referral \u2014 Referral program\n` +
-  `  /refer \u2014 Apply referral code`;
+export const helpMessage = (mode?: UserMode): string => {
+  if (isPersonal(mode)) {
+    return (
+      `\u2753 *Help \u2014 Digital Khata Bot*${divider}` +
+      `\uD83D\uDFE2 *Recording Income:*\n\n` +
+      `  \`Salary 50000\` \u2014 quick entry\n` +
+      `  \`Freelance 3000\` \u2014 with source\n` +
+      `  \`50000 Salary\` \u2014 amount first\n` +
+      `  \`Bonus \u09EB\u09E6\u09E6\u09E6\` \u2014 Bangla numerals\n` +
+      `  /addincome \u2014 step by step\n` +
+      `${divider}` +
+      `\uD83D\uDD34 *Recording Expenses:*\n\n` +
+      `  \`-200\` \u2014 quick expense\n` +
+      `  \`-500 Lunch\` \u2014 with description\n` +
+      `  \`-500 Lunch #food\` \u2014 with category\n` +
+      `  /expense \u2014 step by step\n` +
+      `${divider}` +
+      `\uD83D\uDCCA *Reports & Balance:*\n\n` +
+      `  /balance \u2014 Live balance now\n` +
+      `  /today \u2014 Full day report\n` +
+      `  /week \u2014 Last 7 days \u2B50\n` +
+      `  /month \u2014 This month \u2B50\n` +
+      `  /history \u2014 Recent entries\n` +
+      `${divider}` +
+      `\u2699\uFE0F *Management:*\n\n` +
+      `  /endday \u2014 Close & lock today\n` +
+      `  /delete \u2014 Remove last entry\n` +
+      `  /setbalance \u2014 Set starting cash\n` +
+      `  /start \u2014 Restart bot\n` +
+      `${divider}` +
+      `\u2B50 *Pro & Subscription:*\n\n` +
+      `  /subscribe \u2014 Upgrade to Pro\n` +
+      `  /pay \u2014 Submit payment\n` +
+      `  /mystatus \u2014 View your plan\n` +
+      `  /referral \u2014 Referral program\n` +
+      `  /refer \u2014 Apply referral code`
+    );
+  }
+  return (
+    `\u2753 *Help \u2014 Digital Khata Bot*${divider}` +
+    `\uD83D\uDFE2 *Recording Sales:*\n\n` +
+    `  \`Shirt 500\` \u2014 quick entry\n` +
+    `  \`Rice 5kg 350\` \u2014 with description\n` +
+    `  \`500 Shirt\` \u2014 price first\n` +
+    `  \`Lungi \u09EB\u09E6\u09E6\` \u2014 Bangla numerals\n` +
+    `  /addsale \u2014 step by step\n` +
+    `${divider}` +
+    `\uD83D\uDD34 *Recording Expenses:*\n\n` +
+    `  \`-50\` \u2014 quick expense\n` +
+    `  \`-100 Tea\` \u2014 with description\n` +
+    `  /expense \u2014 step by step\n` +
+    `${divider}` +
+    `\uD83D\uDCCA *Reports & Balance:*\n\n` +
+    `  /balance \u2014 Live balance now\n` +
+    `  /today \u2014 Full day report\n` +
+    `  /week \u2014 Last 7 days \u2B50\n` +
+    `  /month \u2014 This month \u2B50\n` +
+    `  /history \u2014 Recent entries\n` +
+    `${divider}` +
+    `\u2699\uFE0F *Management:*\n\n` +
+    `  /endday \u2014 Close & lock today\n` +
+    `  /delete \u2014 Remove last entry\n` +
+    `  /setbalance \u2014 Set opening cash\n` +
+    `  /start \u2014 Restart bot\n` +
+    `${divider}` +
+    `\u2B50 *Pro & Subscription:*\n\n` +
+    `  /subscribe \u2014 Upgrade to Pro\n` +
+    `  /pay \u2014 Submit payment\n` +
+    `  /mystatus \u2014 View your plan\n` +
+    `  /referral \u2014 Referral program\n` +
+    `  /refer \u2014 Apply referral code`
+  );
+};
 
-// ─── SALE CONFIRMATION ─────────────────────────
+// ─── SALE / INCOME CONFIRMATION ─────────────────────────
 
 export const saleConfirmation = (
   productName: string,
   price: number,
   currentBalance: number,
-): string =>
-  `\uD83D\uDFE2 *Sale Recorded*${divider}` +
-  `\uD83D\uDCE6 Product:     *${productName}*\n` +
-  `\uD83D\uDCB0 Amount:     *+${formatCurrency(price)} BDT*\n` +
-  `\uD83D\uDD52 Time:          ${formatBDTime(new Date())}${divider}` +
-  `\uD83D\uDCB3 Balance:     *${formatCurrency(currentBalance)} BDT*`;
-
-// ─── EXPENSE CONFIRMATION ─────────────────────────
+  mode?: UserMode,
+  category?: string | null,
+): string => {
+  const l = labels(mode);
+  const catLine = category ? `\uD83C\uDFF7\uFE0F Category:    *${category}*\n` : '';
+  return (
+    `\uD83D\uDFE2 *${l.inLabelSingular} Recorded*${divider}` +
+    `\uD83D\uDCE6 ${l.inNameField}:     *${productName}*\n` +
+    `\uD83D\uDCB0 Amount:     *+${formatCurrency(price)} BDT*\n` +
+    catLine +
+    `\uD83D\uDD52 Time:          ${formatBDTime(new Date())}${divider}` +
+    `\uD83D\uDCB3 Balance:     *${formatCurrency(currentBalance)} BDT*`
+  );
+};
 
 export const expenseConfirmation = (
   description: string,
   amount: number,
   currentBalance: number,
-): string =>
-  `\uD83D\uDD34 *Expense Recorded*${divider}` +
-  `\uD83D\uDCDD Expense:    *${description}*\n` +
-  `\uD83D\uDCB8 Amount:     *-${formatCurrency(amount)} BDT*\n` +
-  `\uD83D\uDD52 Time:          ${formatBDTime(new Date())}${divider}` +
-  `\uD83D\uDCB3 Balance:     *${formatCurrency(currentBalance)} BDT*`;
+  _mode?: UserMode,
+  category?: string | null,
+): string => {
+  const catLine = category ? `\uD83C\uDFF7\uFE0F Category:    *${category}*\n` : '';
+  return (
+    `\uD83D\uDD34 *Expense Recorded*${divider}` +
+    `\uD83D\uDCDD Expense:    *${description}*\n` +
+    `\uD83D\uDCB8 Amount:     *-${formatCurrency(amount)} BDT*\n` +
+    catLine +
+    `\uD83D\uDD52 Time:          ${formatBDTime(new Date())}${divider}` +
+    `\uD83D\uDCB3 Balance:     *${formatCurrency(currentBalance)} BDT*`
+  );
+};
 
-// ─── WIZARD PROMPTS (SALE) ─────────────────────────
+// ─── WIZARD PROMPTS (SALE / INCOME) ─────────────────────────
 
-export const wizardAskProduct = (): string =>
-  `\uD83D\uDCE5 *Add New Sale*${divider}` +
-  `What product did you sell?\n\n` +
-  `_Type the product name (e.g., Shirt, Rice, Jeans)_\n\n` +
-  `\u274C /cancel to exit`;
+export const wizardAskProduct = (mode?: UserMode): string => {
+  if (isPersonal(mode)) {
+    return (
+      `\uD83D\uDCE5 *Add New Income*${divider}` +
+      `Where did the income come from?\n\n` +
+      `_Type a source (e.g., Salary, Freelance, Bonus)_\n\n` +
+      `\u274C /cancel to exit`
+    );
+  }
+  return (
+    `\uD83D\uDCE5 *Add New Sale*${divider}` +
+    `What product did you sell?\n\n` +
+    `_Type the product name (e.g., Shirt, Rice, Jeans)_\n\n` +
+    `\u274C /cancel to exit`
+  );
+};
 
-export const wizardAskPrice = (productName: string): string =>
-  `\uD83D\uDCE5 *Add New Sale*${divider}` +
-  `\uD83D\uDCE6 Product: *${productName}*\n\n` +
-  `What was the price? _(in BDT)_\n\n` +
-  `_Type a number (e.g., 500)_\n\n` +
+export const wizardAskPrice = (productName: string, mode?: UserMode): string => {
+  const l = labels(mode);
+  const title = isPersonal(mode) ? 'Add New Income' : 'Add New Sale';
+  return (
+    `\uD83D\uDCE5 *${title}*${divider}` +
+    `\uD83D\uDCE6 ${l.inNameField}: *${productName}*\n\n` +
+    `${isPersonal(mode) ? 'How much?' : 'What was the price?'} _(in BDT)_\n\n` +
+    `_Type a number (e.g., ${isPersonal(mode) ? '50000' : '500'})_\n\n` +
+    `\u274C /cancel to exit`
+  );
+};
+
+export const wizardAskCategory = (kind: 'income' | 'expense'): string =>
+  `\uD83C\uDFF7\uFE0F *Pick a Category*${divider}` +
+  `Choose a category for this ${kind}, or tap *Skip*.\n\n` +
+  `_Tap a button below, or type a new category name._\n\n` +
   `\u274C /cancel to exit`;
 
 export const saleConfirmationWizard = (
   productName: string,
   price: number,
   currentBalance: number,
-): string =>
-  `\uD83D\uDFE2 *Sale Recorded*${divider}` +
-  `\uD83D\uDCE6 Product:     *${productName}*\n` +
-  `\uD83D\uDCB0 Amount:     *+${formatCurrency(price)} BDT*\n` +
-  `\uD83D\uDD52 Time:          ${formatBDTime(new Date())}${divider}` +
-  `\uD83D\uDCB3 Balance:     *${formatCurrency(currentBalance)} BDT*\n\n` +
-  `\uD83D\uDCE5 /addsale to add another`;
+  mode?: UserMode,
+  category?: string | null,
+): string => {
+  const l = labels(mode);
+  const title = isPersonal(mode) ? 'Income Recorded' : 'Sale Recorded';
+  const catLine = category ? `\uD83C\uDFF7\uFE0F Category:    *${category}*\n` : '';
+  return (
+    `\uD83D\uDFE2 *${title}*${divider}` +
+    `\uD83D\uDCE6 ${l.inNameField}:     *${productName}*\n` +
+    `\uD83D\uDCB0 Amount:     *+${formatCurrency(price)} BDT*\n` +
+    catLine +
+    `\uD83D\uDD52 Time:          ${formatBDTime(new Date())}${divider}` +
+    `\uD83D\uDCB3 Balance:     *${formatCurrency(currentBalance)} BDT*\n\n` +
+    `\uD83D\uDCE5 ${l.addInCmd} to add another`
+  );
+};
 
 // ─── WIZARD PROMPTS (EXPENSE) ─────────────────────────
 
-export const wizardAskExpenseDesc = (): string =>
+export const wizardAskExpenseDesc = (mode?: UserMode): string =>
   `\uD83D\uDCE4 *Add New Expense*${divider}` +
   `What was the expense for?\n\n` +
-  `_Type a description (e.g., Tea, Rent, Transport)_\n\n` +
+  `_Type a description (e.g., ${isPersonal(mode) ? 'Lunch, Bus, Electricity' : 'Tea, Rent, Transport'})_\n\n` +
   `\u274C /cancel to exit`;
 
 export const wizardAskExpenseAmount = (description: string): string =>
@@ -183,13 +367,20 @@ export const expenseConfirmationWizard = (
   description: string,
   amount: number,
   currentBalance: number,
-): string =>
-  `\uD83D\uDD34 *Expense Recorded*${divider}` +
-  `\uD83D\uDCDD Expense:    *${description}*\n` +
-  `\uD83D\uDCB8 Amount:     *-${formatCurrency(amount)} BDT*\n` +
-  `\uD83D\uDD52 Time:          ${formatBDTime(new Date())}${divider}` +
-  `\uD83D\uDCB3 Balance:     *${formatCurrency(currentBalance)} BDT*\n\n` +
-  `\uD83D\uDCE4 /expense to add another`;
+  _mode?: UserMode,
+  category?: string | null,
+): string => {
+  const catLine = category ? `\uD83C\uDFF7\uFE0F Category:    *${category}*\n` : '';
+  return (
+    `\uD83D\uDD34 *Expense Recorded*${divider}` +
+    `\uD83D\uDCDD Expense:    *${description}*\n` +
+    `\uD83D\uDCB8 Amount:     *-${formatCurrency(amount)} BDT*\n` +
+    catLine +
+    `\uD83D\uDD52 Time:          ${formatBDTime(new Date())}${divider}` +
+    `\uD83D\uDCB3 Balance:     *${formatCurrency(currentBalance)} BDT*\n\n` +
+    `\uD83D\uDCE4 /expense to add another`
+  );
+};
 
 // ─── LIVE BALANCE ─────────────────────────
 
@@ -202,7 +393,8 @@ export interface BalanceData {
   isClosed: boolean;
 }
 
-export const balanceMessage = (data: BalanceData): string => {
+export const balanceMessage = (data: BalanceData, mode?: UserMode): string => {
+  const l = labels(mode);
   const status = data.isClosed ? '\uD83D\uDD12 Closed' : '\uD83D\uDFE2 Active';
   const netFlow = data.totalSales - data.totalExpenses;
   const netSign = netFlow >= 0 ? '+' : '';
@@ -211,8 +403,8 @@ export const balanceMessage = (data: BalanceData): string => {
     `\uD83D\uDCB0 *Live Balance*\n` +
     `\uD83D\uDCC5 ${formatBDDate(new Date())}  \u2502  ${status}${divider}` +
     `\uD83C\uDFE6 Opening:       *${formatCurrency(data.openingBalance)} BDT*\n` +
-    `\uD83D\uDFE2 Sales:           *+${formatCurrency(data.totalSales)} BDT*\n` +
-    `\uD83D\uDD34 Expenses:      *-${formatCurrency(data.totalExpenses)} BDT*\n` +
+    `\uD83D\uDFE2 ${l.inLabel}:           *+${formatCurrency(data.totalSales)} BDT*\n` +
+    `\uD83D\uDD34 ${l.outLabel}:      *-${formatCurrency(data.totalExpenses)} BDT*\n` +
     `\uD83D\uDCCA Net:                ${netSign}${formatCurrency(netFlow)} BDT${divider}` +
     `\uD83D\uDCB3 *Current Balance:  ${formatCurrency(data.currentBalance)} BDT*`
   );
@@ -228,18 +420,20 @@ export interface EndDayData {
   closingBalance: number;
 }
 
-export const endDayMessage = (data: EndDayData): string => {
+export const endDayMessage = (data: EndDayData, mode?: UserMode): string => {
+  const l = labels(mode);
   const netFlow = data.totalSales - data.totalExpenses;
   const netSign = netFlow >= 0 ? '+' : '';
   const emoji = netFlow >= 0 ? '\uD83D\uDCC8' : '\uD83D\uDCC9';
+  const netLine = isPersonal(mode) ? 'Net Savings' : 'Net P/L';
 
   return (
     `\uD83C\uDFD9\uFE0F *Day Closed*\n` +
     `\uD83D\uDCC5 ${formatBDDate(new Date())}${divider}` +
     `\uD83C\uDFE6 Opening:       *${formatCurrency(data.openingBalance)} BDT*\n` +
-    `\uD83D\uDFE2 Total Sales:   *+${formatCurrency(data.totalSales)} BDT*\n` +
+    `\uD83D\uDFE2 Total ${l.inLabel}:   *+${formatCurrency(data.totalSales)} BDT*\n` +
     `\uD83D\uDD34 Total Exp:     *-${formatCurrency(data.totalExpenses)} BDT*\n` +
-    `${emoji} Net P/L:          ${netSign}${formatCurrency(netFlow)} BDT${divider}` +
+    `${emoji} ${netLine}:         ${netSign}${formatCurrency(netFlow)} BDT${divider}` +
     `\uD83D\uDD10 *Closing Balance:  ${formatCurrency(data.closingBalance)} BDT*\n\n` +
     `_Tomorrow\u2019s opening will be ${formatCurrency(data.closingBalance)} BDT_`
   );
@@ -251,21 +445,37 @@ export const endDayReminder = (): string =>
   `Use /endday to close and lock today\u2019s records.\n\n` +
   `_The day will auto-close at midnight if not closed manually._`;
 
-// ─── TODAY SUMMARY (NEW FORMAT) ─────────────────────────
+// ─── TODAY SUMMARY ─────────────────────────
 
-export const todaySummaryEmpty = (openingBalance: number): string =>
-  `\uD83D\uDCCA *Today\u2019s Report*\n` +
-  `\uD83D\uDCC5 ${formatBDDate(new Date())}${divider}` +
-  `\uD83C\uDFE6 Opening: *${formatCurrency(openingBalance)} BDT*\n\n` +
-  `\uD83D\uDEAB No transactions recorded yet.${divider}` +
-  `\uD83D\uDCA1 _Type_ \`Product Price\` _to add a sale_\n` +
-  `_Type_ \`-Amount\` _to add an expense_`;
+export const todaySummaryEmpty = (openingBalance: number, mode?: UserMode): string => {
+  const example = isPersonal(mode) ? '`Salary Amount`' : '`Product Price`';
+  return (
+    `\uD83D\uDCCA *Today\u2019s Report*\n` +
+    `\uD83D\uDCC5 ${formatBDDate(new Date())}${divider}` +
+    `\uD83C\uDFE6 Opening: *${formatCurrency(openingBalance)} BDT*\n\n` +
+    `\uD83D\uDEAB No transactions recorded yet.${divider}` +
+    `\uD83D\uDCA1 _Type_ ${example} _to add an entry_\n` +
+    `_Type_ \`-Amount\` _to add an expense_`
+  );
+};
+
+interface CategoryBreakdownItem {
+  category: string;
+  total: number;
+  count: number;
+}
 
 export const todaySummary = (
   summary: ISummaryResult,
   sales: SaleItem[],
   expenses: ExpenseItem[],
+  mode?: UserMode,
+  breakdown?: {
+    income?: CategoryBreakdownItem[];
+    expense?: CategoryBreakdownItem[];
+  },
 ): string => {
+  const l = labels(mode);
   const netFlow = summary.totalSales - summary.totalExpenses;
   const netSign = netFlow >= 0 ? '+' : '';
   const emoji = netFlow >= 0 ? '\uD83D\uDCC8' : '\uD83D\uDCC9';
@@ -274,23 +484,40 @@ export const todaySummary = (
     `\uD83D\uDCCA *Today\u2019s Report*\n` +
     `\uD83D\uDCC5 ${formatBDDate(new Date())}${divider}` +
     `\uD83C\uDFE6 Opening:       *${formatCurrency(summary.openingBalance)} BDT*\n` +
-    `\uD83D\uDFE2 Sales (${summary.transactionCount}):    *+${formatCurrency(summary.totalSales)} BDT*\n` +
-    `\uD83D\uDD34 Expenses (${summary.expenseCount}): *-${formatCurrency(summary.totalExpenses)} BDT*\n` +
+    `\uD83D\uDFE2 ${l.inLabel} (${summary.transactionCount}):    *+${formatCurrency(summary.totalSales)} BDT*\n` +
+    `\uD83D\uDD34 ${l.outLabel} (${summary.expenseCount}): *-${formatCurrency(summary.totalExpenses)} BDT*\n` +
     `${emoji} Net:                ${netSign}${formatCurrency(netFlow)} BDT${divider}` +
     `\uD83D\uDCB3 *Balance:  ${formatCurrency(summary.closingBalance)} BDT*${divider}`;
 
   if (sales.length > 0) {
-    msg += `\uD83D\uDFE2 *Sales:*\n`;
+    msg += `\uD83D\uDFE2 *${l.inLabel}:*\n`;
     sales.forEach((sale, i) => {
-      msg += `  ${String(i + 1).padStart(2, ' ')}. ${sale.productName}  \u2014  +${formatCurrency(sale.price)} BDT  (${formatBDTime(sale.createdAt)})\n`;
+      const cat = sale.category ? ` [${sale.category}]` : '';
+      msg += `  ${String(i + 1).padStart(2, ' ')}. ${sale.productName}${cat}  \u2014  +${formatCurrency(sale.price)} BDT  (${formatBDTime(sale.createdAt)})\n`;
     });
   }
 
   if (expenses.length > 0) {
-    msg += `\n\uD83D\uDD34 *Expenses:*\n`;
+    msg += `\n\uD83D\uDD34 *${l.outLabel}:*\n`;
     expenses.forEach((exp, i) => {
-      msg += `  ${String(i + 1).padStart(2, ' ')}. ${exp.description}  \u2014  -${formatCurrency(exp.amount)} BDT  (${formatBDTime(exp.createdAt)})\n`;
+      const cat = exp.category ? ` [${exp.category}]` : '';
+      msg += `  ${String(i + 1).padStart(2, ' ')}. ${exp.description}${cat}  \u2014  -${formatCurrency(exp.amount)} BDT  (${formatBDTime(exp.createdAt)})\n`;
     });
+  }
+
+  if (isPersonal(mode) && breakdown) {
+    if (breakdown.expense && breakdown.expense.length > 0) {
+      msg += `\n\uD83C\uDFF7\uFE0F *Expense by Category:*\n`;
+      breakdown.expense.forEach(b => {
+        msg += `  \u2022 ${b.category} (${b.count})  \u2014  *${formatCurrency(b.total)} BDT*\n`;
+      });
+    }
+    if (breakdown.income && breakdown.income.length > 0) {
+      msg += `\n\uD83C\uDFF7\uFE0F *Income by Source:*\n`;
+      breakdown.income.forEach(b => {
+        msg += `  \u2022 ${b.category} (${b.count})  \u2014  *${formatCurrency(b.total)} BDT*\n`;
+      });
+    }
   }
 
   return msg;
@@ -302,23 +529,48 @@ export const periodSummary = (
   summary: ISummaryResult,
   title: string,
   emoji: string,
+  mode?: UserMode,
+  breakdown?: {
+    income?: CategoryBreakdownItem[];
+    expense?: CategoryBreakdownItem[];
+  },
 ): string => {
+  const l = labels(mode);
   const netFlow = summary.totalSales - summary.totalExpenses;
   const netSign = netFlow >= 0 ? '+' : '';
   const trendEmoji = netFlow >= 0 ? '\uD83D\uDCC8' : '\uD83D\uDCC9';
   const days = getDaysBetween(summary.startDate, summary.endDate);
+  const netLine = isPersonal(mode) ? 'Net Savings' : 'Net P/L';
+  const avgLabel = isPersonal(mode) ? 'income' : 'sales';
+  const avgPerLabel = isPersonal(mode) ? 'Avg / Entry' : 'Avg / Sale';
 
-  return (
+  let msg =
     `${emoji} *${title}*\n` +
     `\uD83D\uDCC5 ${formatBDDate(summary.startDate)} \u2014 ${formatBDDate(summary.endDate)}${divider}` +
     `\uD83C\uDFE6 Opening:        *${formatCurrency(summary.openingBalance)} BDT*\n` +
-    `\uD83D\uDFE2 Sales (${summary.transactionCount}):     *+${formatCurrency(summary.totalSales)} BDT*\n` +
-    `\uD83D\uDD34 Expenses (${summary.expenseCount}):  *-${formatCurrency(summary.totalExpenses)} BDT*\n` +
-    `${trendEmoji} Net P/L:           ${netSign}${formatCurrency(netFlow)} BDT${divider}` +
+    `\uD83D\uDFE2 ${l.inLabel} (${summary.transactionCount}):     *+${formatCurrency(summary.totalSales)} BDT*\n` +
+    `\uD83D\uDD34 ${l.outLabel} (${summary.expenseCount}):  *-${formatCurrency(summary.totalExpenses)} BDT*\n` +
+    `${trendEmoji} ${netLine}:        ${netSign}${formatCurrency(netFlow)} BDT${divider}` +
     `\uD83D\uDCB3 *Balance:  ${formatCurrency(summary.closingBalance)} BDT*${divider}` +
-    `\uD83D\uDCC5 Avg / Day:   ${formatCurrency(summary.totalSales / days)} BDT sales\n` +
-    `\uD83D\uDCCB Avg / Sale:   ${formatCurrency(summary.transactionCount > 0 ? summary.totalSales / summary.transactionCount : 0)} BDT`
-  );
+    `\uD83D\uDCC5 Avg / Day:   ${formatCurrency(summary.totalSales / days)} BDT ${avgLabel}\n` +
+    `\uD83D\uDCCB ${avgPerLabel}:   ${formatCurrency(summary.transactionCount > 0 ? summary.totalSales / summary.transactionCount : 0)} BDT`;
+
+  if (isPersonal(mode) && breakdown) {
+    if (breakdown.expense && breakdown.expense.length > 0) {
+      msg += `${divider}\uD83C\uDFF7\uFE0F *Expense by Category:*\n`;
+      breakdown.expense.forEach(b => {
+        msg += `  \u2022 ${b.category} (${b.count})  \u2014  *${formatCurrency(b.total)} BDT*\n`;
+      });
+    }
+    if (breakdown.income && breakdown.income.length > 0) {
+      msg += `\n\uD83C\uDFF7\uFE0F *Income by Source:*\n`;
+      breakdown.income.forEach(b => {
+        msg += `  \u2022 ${b.category} (${b.count})  \u2014  *${formatCurrency(b.total)} BDT*\n`;
+      });
+    }
+  }
+
+  return msg;
 };
 
 const getDaysBetween = (start: Date, end: Date): number => {
@@ -328,11 +580,15 @@ const getDaysBetween = (start: Date, end: Date): number => {
 
 // ─── HISTORY ─────────────────────────
 
-export const historyEmpty = (): string =>
-  `\uD83D\uDCDC *Transaction History*${divider}` +
-  `\uD83D\uDEAB No entries recorded yet.${divider}` +
-  `\uD83D\uDCA1 _Type_ \`Product Price\` _to add a sale_\n` +
-  `_Type_ \`-Amount\` _to add an expense_`;
+export const historyEmpty = (mode?: UserMode): string => {
+  const example = isPersonal(mode) ? '`Salary Amount`' : '`Product Price`';
+  return (
+    `\uD83D\uDCDC *Transaction History*${divider}` +
+    `\uD83D\uDEAB No entries recorded yet.${divider}` +
+    `\uD83D\uDCA1 _Type_ ${example} _to add an entry_\n` +
+    `_Type_ \`-Amount\` _to add an expense_`
+  );
+};
 
 export const historyList = (
   transactions: TransactionItem[],
@@ -370,12 +626,19 @@ export const deleteConfirmation = (
   name: string,
   amount: number,
   currentBalance: number,
+  mode?: UserMode,
 ): string => {
   const icon = type === 'sale' ? '\uD83D\uDFE2' : '\uD83D\uDD34';
+  const label =
+    type === 'sale'
+      ? isPersonal(mode)
+        ? 'Income'
+        : 'Sale'
+      : 'Expense';
 
   return (
     `\u274C *Entry Deleted*${divider}` +
-    `${icon} ${type === 'sale' ? 'Sale' : 'Expense'}: *${name}*\n` +
+    `${icon} ${label}: *${name}*\n` +
     `\uD83D\uDCB0 Amount: *${formatCurrency(amount)} BDT*${divider}` +
     `\uD83D\uDCB3 Updated Balance: *${formatCurrency(currentBalance)} BDT*`
   );
@@ -408,23 +671,47 @@ export const errorNotRegistered = (): string =>
   `\uD83D\uDD12 *Not Registered*\n\n` +
   `Please use /start to register before using the bot.`;
 
-export const errorInvalidInput = (): string =>
-  `\u26A0\uFE0F *Couldn\u2019t understand your input*\n\n` +
-  `\uD83D\uDFE2 *To add a sale:*\n` +
-  `  \`Shirt 500\` or \`500 Shirt\`\n\n` +
-  `\uD83D\uDD34 *To add an expense:*\n` +
-  `  \`-50\` or \`-100 Tea\`\n\n` +
-  `Or use /addsale or /expense for guided entry.`;
+export const errorInvalidInput = (mode?: UserMode): string => {
+  if (isPersonal(mode)) {
+    return (
+      `\u26A0\uFE0F *Couldn\u2019t understand your input*\n\n` +
+      `\uD83D\uDFE2 *To add income:*\n` +
+      `  \`Salary 50000\` or \`50000 Salary\`\n\n` +
+      `\uD83D\uDD34 *To add an expense:*\n` +
+      `  \`-200\` or \`-500 Lunch\`\n` +
+      `  \`-500 Lunch #food\` (with category)\n\n` +
+      `Or use /addincome or /expense for guided entry.`
+    );
+  }
+  return (
+    `\u26A0\uFE0F *Couldn\u2019t understand your input*\n\n` +
+    `\uD83D\uDFE2 *To add a sale:*\n` +
+    `  \`Shirt 500\` or \`500 Shirt\`\n\n` +
+    `\uD83D\uDD34 *To add an expense:*\n` +
+    `  \`-50\` or \`-100 Tea\`\n\n` +
+    `Or use /addsale or /expense for guided entry.`
+  );
+};
 
 export const errorInvalidPrice = (): string =>
   `\u26A0\uFE0F *Invalid price*\n\n` +
   `Please enter a positive number.\n` +
   `_Example:_ \`500\` _or_ \`\u09EB\u09E6\u09E6\``;
 
-export const errorInvalidProductName = (): string =>
-  `\u26A0\uFE0F *Invalid product name*\n\n` +
-  `Please enter a valid product name.\n` +
-  `_Example: Shirt, Rice, Blue Jeans_`;
+export const errorInvalidProductName = (mode?: UserMode): string => {
+  if (isPersonal(mode)) {
+    return (
+      `\u26A0\uFE0F *Invalid name*\n\n` +
+      `Please enter a valid source name.\n` +
+      `_Example: Salary, Freelance, Bonus_`
+    );
+  }
+  return (
+    `\u26A0\uFE0F *Invalid product name*\n\n` +
+    `Please enter a valid product name.\n` +
+    `_Example: Shirt, Rice, Blue Jeans_`
+  );
+};
 
 export const errorDayClosed = (): string =>
   `\uD83D\uDD12 *Day Already Closed*\n\n` +
@@ -434,7 +721,7 @@ export const errorDayClosed = (): string =>
 // ─── SUBSCRIPTION TEMPLATES ─────────────────────────
 
 export const subscribeMessage = (): string =>
-  `\u2B50 *Upgrade to Pro Business*${divider}` +
+  `\u2B50 *Upgrade to Pro*${divider}` +
   `\uD83D\uDCCA *Pro Features:*\n\n` +
   `  \u2705 Weekly reports (/week)\n` +
   `  \u2705 Monthly reports (/month)\n` +
@@ -483,7 +770,7 @@ export const planStatusMessage = (data: {
   streakDays: number;
   referralCode: string;
 }): string => {
-  const planName = data.isPro ? '\u2B50 Pro Business' : '\uD83D\uDCCB Basic Khata (Free)';
+  const planName = data.isPro ? '\u2B50 Pro' : '\uD83D\uDCCB Basic Khata (Free)';
   let msg =
     `\uD83D\uDCCB *Your Plan*${divider}` +
     `\uD83D\uDCE6 Plan: *${planName}*\n` +

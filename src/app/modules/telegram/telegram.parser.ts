@@ -1,11 +1,13 @@
 export interface ParsedSaleInput {
   productName: string;
   price: number;
+  category?: string;
 }
 
 export interface ParsedExpenseInput {
   description: string;
   amount: number;
+  category?: string;
 }
 
 export type ParsedInput =
@@ -35,14 +37,25 @@ const isNumericToken = (token: string): boolean => {
   return /^\d+(\.\d+)?$/.test(token);
 };
 
+// Extract a trailing or embedded #category tag, returning the stripped text + category.
+const extractCategory = (
+  text: string,
+): { text: string; category?: string } => {
+  const match = text.match(/(^|\s)#([\p{L}\p{N}_-]+)/u);
+  if (!match) return { text };
+  const category = match[2].toLowerCase();
+  const stripped = text.replace(match[0], ' ').replace(/\s+/g, ' ').trim();
+  return { text: stripped, category };
+};
+
 /**
  * Parse user message into a sale or expense.
  *
  * Sale patterns:
- *   "Shirt 500", "500 Shirt", "Rice 5kg 350"
+ *   "Shirt 500", "500 Shirt", "Rice 5kg 350", "Salary 50000 #income"
  *
  * Expense patterns:
- *   "-50", "-100 Tea", "Tea -100"
+ *   "-50", "-100 Tea", "Tea -100", "-200 Lunch #food"
  */
 export const parseInput = (text: string): ParsedInput | null => {
   if (!text || typeof text !== 'string') return null;
@@ -50,15 +63,18 @@ export const parseInput = (text: string): ParsedInput | null => {
   const normalized = normalizeBanglaDigits(text).trim().replace(/\s+/g, ' ');
   if (!normalized) return null;
 
-  // Check for expense pattern: starts with "-"
-  const expenseResult = parseExpenseInput(normalized);
+  const { text: cleanText, category } = extractCategory(normalized);
+  if (!cleanText) return null;
+
+  const expenseResult = parseExpenseInput(cleanText);
   if (expenseResult) {
+    if (category) expenseResult.category = category;
     return { type: 'expense', data: expenseResult };
   }
 
-  // Otherwise try sale
-  const saleResult = parseSaleInput(normalized);
+  const saleResult = parseSaleInput(cleanText);
   if (saleResult) {
+    if (category) saleResult.category = category;
     return { type: 'sale', data: saleResult };
   }
 

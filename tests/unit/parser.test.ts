@@ -1,4 +1,4 @@
-import { parseSaleInput, parsePrice } from '../../src/app/modules/telegram/telegram.parser';
+import { parseSaleInput, parsePrice, parseInput } from '../../src/app/modules/telegram/telegram.parser';
 
 describe('parseSaleInput', () => {
   describe('valid inputs - product then price', () => {
@@ -156,5 +156,51 @@ describe('parsePrice', () => {
 
   it('should return null for negative numbers', () => {
     expect(parsePrice('-100')).toBeNull();
+  });
+});
+
+describe('parseInput with #category', () => {
+  it('parses sale with trailing category', () => {
+    const result = parseInput('Salary 50000 #income');
+    expect(result).toEqual({
+      type: 'sale',
+      data: { productName: 'Salary', price: 50000, category: 'income' },
+    });
+  });
+
+  it('parses expense with category', () => {
+    const result = parseInput('-200 Lunch #food');
+    expect(result).toEqual({
+      type: 'expense',
+      data: { description: 'Lunch', amount: 200, category: 'food' },
+    });
+  });
+
+  it('parses expense with embedded category', () => {
+    const result = parseInput('-500 #bills Electricity');
+    expect(result).toEqual({
+      type: 'expense',
+      data: { description: 'Electricity', amount: 500, category: 'bills' },
+    });
+  });
+
+  it('lowercases categories', () => {
+    const result = parseInput('Shirt 500 #Sales');
+    expect(result).toEqual({
+      type: 'sale',
+      data: { productName: 'Shirt', price: 500, category: 'sales' },
+    });
+  });
+
+  it('parses input with no category', () => {
+    const result = parseInput('Shirt 500');
+    expect(result).toEqual({
+      type: 'sale',
+      data: { productName: 'Shirt', price: 500 },
+    });
+  });
+
+  it('returns null for just a category', () => {
+    expect(parseInput('#food')).toBeNull();
   });
 });
